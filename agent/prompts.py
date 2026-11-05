@@ -24,6 +24,18 @@ RESEARCH_USER = """Today is {today}. Find the {n} most interesting AI stories fr
 Already covered recently (do NOT pick these again):
 {history}
 
+Search plan - spread your {searches} searches across the whole field, not just big brands:
+- launches and products (new models, features, apps)
+- research (arXiv papers, university and lab results, benchmarks)
+- policy and regulation (US, EU, UK, India, China; courts, agencies, lawmakers)
+- money (funding rounds, acquisitions, earnings that move AI)
+- security and safety (AI-found bugs, misuse, incidents, outages)
+- smaller companies, startups and open source
+- public debate (jobs, schools, creators, copyright)
+At most 2 searches may be about any single company. Use web_fetch to open and read the
+most promising articles in full before writing claims - never build a story from a
+headline or snippet alone. Prefer stories you could confirm from the original source.
+
 For each story return:
 - title, one-paragraph summary, category (launch | research | product | business |
   policy | security | debate), event_date (YYYY-MM-DD)
@@ -57,6 +69,16 @@ Standard:
 - Note important caveats a viewer should hear (e.g. not independently tested,
   preview only, not yet approved, local access required).
 - Sources the researcher listed are leads, not proof. Search independently.
+
+How to search (primary sources first):
+1. Find the original: the company's own post or press release, the paper, the filing,
+   the government page. Search for it by name ("OpenAI blog Pierre acquisition"), then
+   open it with web_fetch and read it in full.
+2. Then find independent coverage from established outlets (Reuters, AP, Bloomberg,
+   TechCrunch, The Verge, FT, WSJ, NYT, CNBC) and open at least one of those too.
+3. Never search for or cite news digests, roundups or aggregators; they are blocked.
+   If a claim is only reported by a digest, it is "unverified".
+4. Check each page's date: an event older than the window is recycled news.
 """
 
 FACTCHECK_USER = """Today is {today}. Fact-check this story.

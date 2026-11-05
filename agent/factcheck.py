@@ -61,17 +61,24 @@ def check_story(claude: Claude, cfg: dict, story: dict, today: dt.date) -> dict:
         story_id=story["id"],
     )
     log(f"Fact-checking: {story['title']}")
+    rc = cfg["research"]
+    # the checker may not lean on digests or encyclopedias: originals and real outlets only
+    blocked = sorted(set(rc.get("blocked_domains", []) + rc.get("aggregator_domains", []) + rc.get("factcheck_blocked_domains", [])))
     data, res = claude.ask_json(
         cfg["models"]["factcheck"],
         prompts.FACTCHECK_SYSTEM,
         user,
-        max_searches=cfg["research"]["fact_check_max_searches"],
+        max_searches=rc["fact_check_max_searches"],
+        blocked_domains=blocked or None,
+        max_fetches=rc.get("fact_check_max_fetches", 4),
     )
     data["search_queries"] = res.queries
+    data["pages_read"] = res.fetched
     data["title"] = story["title"]
     data = enforce_rules(data)
     v = sum(1 for c in data.get("claims", []) if c.get("verdict") in USABLE)
-    log(f"  -> {v}/{len(data.get('claims', []))} claims usable, publishable={data['publishable']}")
+    log(f"  -> {v}/{len(data.get('claims', []))} claims usable, publishable={data['publishable']} "
+        f"({len(res.queries)} searches, {len(res.fetched)} pages read)")
     return data
 
 

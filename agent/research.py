@@ -26,6 +26,7 @@ def run(claude: Claude, cfg: dict, today: dt.date) -> dict:
         hours=rc["window_hours"],
         since=since.strftime("%Y-%m-%d %H:%M"),
         history=history_txt,
+        searches=rc["max_searches"],
     )
     log(f"Researching AI news (last {rc['window_hours']}h, up to {rc['max_searches']} searches)...")
     data, res = claude.ask_json(
@@ -34,15 +35,18 @@ def run(claude: Claude, cfg: dict, today: dt.date) -> dict:
         user,
         max_searches=rc["max_searches"],
         blocked_domains=rc.get("blocked_domains") or None,
+        max_fetches=rc.get("max_fetches", 6),
     )
     stories = data.get("stories", [])
     for st in stories:
         st["rank_score"] = round(score(st), 2)
     stories.sort(key=lambda s: s["rank_score"], reverse=True)
-    log(f"Found {len(stories)} stories; top: {stories[0]['title'] if stories else '-'}")
+    log(f"Found {len(stories)} stories ({len(res.queries)} searches, {len(res.fetched)} pages read in full); "
+        f"top: {stories[0]['title'] if stories else '-'}")
     return {
         "date": today.isoformat(),
         "stories": stories,
         "search_queries": res.queries,
         "pages_seen": res.result_urls,
+        "pages_read": res.fetched,
     }

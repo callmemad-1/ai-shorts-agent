@@ -22,29 +22,53 @@ class LLMResult:
     citations: list[dict] = field(default_factory=list)  # {url, title, cited_text}
     queries: list[str] = field(default_factory=list)
     result_urls: list[dict] = field(default_factory=list)  # every page the search returned
+    fetched: list[str] = field(default_factory=list)  # pages Claude opened and read in full (web_fetch)
 
     def json(self):
         return extract_json(self.text)
 
 
 class Claude:
-    def __init__(self, search_tool: str = "web_search_20260318", max_tokens: int = 16000):
+    def __init__(self, search_tool: str = "web_search_20260318", max_tokens: int = 16000,
+                 fetch_tool: str = "web_fetch_20250910", fetch_beta: str = "web-fetch-2025-09-10"):
         self.client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY
         self.search_tool = search_tool
+        self.fetch_tool = fetch_tool  # "" turns full-page reading off
+        self.fetch_beta = fetch_beta
         self.max_tokens = max_tokens
 
     # ------------------------------------------------------------------
-    def _tools(self, max_searches: int, blocked_domains: list[str] | None):
+    def _tools(self, max_searches: int, blocked_domains: list[str] | None, max_fetches: int = 0):
         tool = {"type": self.search_tool, "name": "web_search", "max_uses": max_searches}
         if blocked_domains:
             tool["blocked_domains"] = blocked_domains
-        return [tool]
+        tools = [tool]
+        if max_fetches and self.fetch_tool:
+            # web_fetch opens a page Claude found and reads it in full, instead of
+            # judging a story from search snippets. It may only open URLs that came from
+            # search results or the prompt, so it can't wander off.
+            fetch = {"type": self.fetch_tool, "name": "web_fetch", "max_uses": max_fetches,
+                     "citations": {"enabled": True}, "max_content_tokens": 12000}
+            if blocked_domains:
+                fetch["blocked_domains"] = blocked_domains
+            tools.append(fetch)
+        return tools
 
     def _create(self, **kwargs):
         for attempt in range(4):
             try:
                 return self.client.messages.create(**kwargs)
             except anthropic.BadRequestError as e:
+                if "credit balance" in str(e).lower():
+                    raise RuntimeError("Your Anthropic API credits have run out. Top up at console.anthropic.com "
+                                       "(Plans & Billing), or run with your Claude subscription: --brain subscription") from None
+                # Full-page reading not available on this account/model: carry on without it.
+                if "tools" in kwargs and "web_fetch" in str(e) and any(t.get("name") == "web_fetch" for t in kwargs["tools"]):
+                    log(f"web_fetch not available ({str(e)[:120]}); searching without full-page reading")
+                    self.fetch_tool = ""
+                    kwargs["tools"] = [t for t in kwargs["tools"] if t.get("name") != "web_fetch"]
+                    kwargs.pop("extra_headers", None)
+                    continue
                 # Older accounts/models may not have the newest tool version.
                 if "tools" in kwargs and self.search_tool != BASIC_SEARCH_TOOL and "web_search" in str(e):
                     log(f"Search tool {self.search_tool} rejected; falling back to {BASIC_SEARCH_TOOL}")
@@ -69,11 +93,14 @@ class Claude:
         search: bool = True,
         max_searches: int = 10,
         blocked_domains: list[str] | None = None,
+        max_fetches: int = 0,
     ) -> LLMResult:
         messages = [{"role": "user", "content": user}]
         kwargs = dict(model=model, max_tokens=self.max_tokens, system=system, messages=messages)
         if search:
-            kwargs["tools"] = self._tools(max_searches, blocked_domains)
+            kwargs["tools"] = self._tools(max_searches, blocked_domains, max_fetches)
+            if any(t["name"] == "web_fetch" for t in kwargs["tools"]) and self.fetch_beta:
+                kwargs["extra_headers"] = {"anthropic-beta": self.fetch_beta}
 
         result = LLMResult(text="")
         final_text_parts: list[str] = []
@@ -94,6 +121,10 @@ class Claude:
                     q = (getattr(block, "input", None) or {}).get("query")
                     if q:
                         result.queries.append(q)
+                elif btype == "server_tool_use" and getattr(block, "name", "") == "web_fetch":
+                    u = (getattr(block, "input", None) or {}).get("url")
+                    if u:
+                        result.fetched.append(u)
                 elif btype == "web_search_tool_result":
                     content = getattr(block, "content", None)
                     if isinstance(content, list):
@@ -143,7 +174,7 @@ class ClaudeCode:
         self.max_turns = cfg.get("llm", {}).get("max_turns", 40)
 
     def ask(self, model: str, system: str, user: str, *, search: bool = True, max_searches: int = 10,
-            blocked_domains: list[str] | None = None) -> LLMResult:
+            blocked_domains: list[str] | None = None, max_fetches: int = 0) -> LLMResult:
         import json as _json
         import os
         import subprocess
@@ -152,11 +183,13 @@ class ClaudeCode:
         rules = system
         if search:
             rules += (f"\n\nUse the WebSearch and WebFetch tools to look things up (at most about {max_searches} "
-                      "searches). Only cite pages you actually read.")
+                      f"searches and {max_fetches or 4} page reads). Open the key pages and read them in full; "
+                      "only cite pages you actually read.")
             if blocked_domains:
-                rules += f" Never use these domains: {', '.join(blocked_domains)}."
+                rules += (f" These sites are blocked: never search for them, open them or cite them: "
+                          f"{', '.join(blocked_domains)}.")
         tools = ["WebSearch", "WebFetch"] if search else []
-        cmd = [str(self.bin), "-p", user, "--output-format", "json", "--model", model, "--system-prompt", rules,
+        cmd = [str(self.bin), "-p", user, "--output-format", "stream-json", "--verbose", "--model", model, "--system-prompt", rules,
                "--max-turns", str(self.max_turns),
                "--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit", "Task", "Agent"]
         if tools:
@@ -165,12 +198,25 @@ class ClaudeCode:
         for attempt in range(3):
             with tempfile.TemporaryDirectory() as cwd:  # neutral folder: no project files steer it
                 p = subprocess.run(cmd, capture_output=True, text=True, env=env, cwd=cwd, stdin=subprocess.DEVNULL)
-            try:
-                out = _json.loads(p.stdout)
-            except ValueError:
+            # stream-json: one event per line; tool calls show every search query and page read
+            out, queries, fetched = {}, [], []
+            for line in p.stdout.splitlines():
+                try:
+                    ev = _json.loads(line)
+                except ValueError:
+                    continue
+                if ev.get("type") == "assistant":
+                    for blk in (ev.get("message") or {}).get("content") or []:
+                        if blk.get("type") == "tool_use" and blk.get("name") == "WebSearch":
+                            queries.append((blk.get("input") or {}).get("query", ""))
+                        elif blk.get("type") == "tool_use" and blk.get("name") == "WebFetch":
+                            fetched.append((blk.get("input") or {}).get("url", ""))
+                elif ev.get("type") == "result":
+                    out = ev
+            if not out:
                 out = {"is_error": True, "result": (p.stdout or p.stderr)[-500:]}
             if not out.get("is_error") and out.get("result"):
-                return LLMResult(text=out["result"])
+                return LLMResult(text=out["result"], queries=[q for q in queries if q], fetched=[u for u in fetched if u])
             msg = str(out.get("result") or p.stderr)[-300:]
             if "limit" in msg.lower():
                 raise RuntimeError(f"Claude subscription usage limit reached: {msg}. Try again later or use the API.")
@@ -236,4 +282,5 @@ def make_claude(cfg: dict, brain: str | None = None):
     if brain == "subscription":
         log("Using your Claude subscription (Claude Code) for research, fact-checks and writing")
         return ClaudeCode(cfg)
-    return Claude(search_tool=cfg["web_search_tool"])
+    return Claude(search_tool=cfg["web_search_tool"], fetch_tool=cfg.get("web_fetch_tool", "web_fetch_20250910"),
+                  fetch_beta=cfg.get("web_fetch_beta", "web-fetch-2025-09-10"))
