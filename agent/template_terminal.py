@@ -40,7 +40,7 @@ THEME_BY_CATEGORY = {"launch": "green", "product": "green", "policy": "amber", "
 TRAFFIC = ((255, 95, 86), (255, 189, 46), (39, 201, 63))  # window buttons
 COMMANDS = {
     "hook": "./breaking --today", "setup": "cat setup.log", "twist": "grep -i 'but' story.log",
-    "stat": "wc --numbers", "example": "explain --like-im-five", "stakes": "echo $WHY_IT_MATTERS", "verify": "factcheck --strict",
+    "stat": "wc --numbers", "example": "explain --like-im-five", "stakes": "echo $WHY_IT_MATTERS", "verify": "cat reality_check.txt",
     "outro": "exit", "point": "cat story.log",
 }
 WIN = (40, 232, 1000, 1540)  # terminal window box
@@ -236,6 +236,11 @@ class TerminalRenderer(SceneRenderer):
                 for ln in sl:
                     t = self._typed(items, text_img(ln, fs, (*k["text"], 255)), X0, y, ln, fs.getlength("M"), t + 0.05, 70)
                     y += int(fs.size * 1.4)
+            if vis and (scene.get("image") or {}).get("path") and vis.get("kind") != "whois":
+                from .template_tutorial import load_cover, scene_photos
+
+                bw, bh = WIN[2] - WIN[0] - 8, WIN[3] - WIN[1] - 72
+                L["backdrop"] = [c for p in scene_photos(scene) if (c := load_cover(p["path"], bw, bh)) is not None] or None
             if vis:
                 L["visual"] = self._build_visual(vis, y + 22, t + 0.15, items)
             elif st != "outro" and (scene.get("image") or {}).get("path"):
@@ -243,10 +248,12 @@ class TerminalRenderer(SceneRenderer):
 
                 h = min(500, 1130 - (y + 22) - 50)
                 w = min(CW, int(h * 1.6))
-                cover = load_cover(scene["image"]["path"], w, h - 40) if h >= 220 else None
-                if cover is not None:
-                    L["image"] = {"cover": cover, "x": X0, "y": y + 22, "w": w, "h": h - 40, "t0": t + 0.15,
-                                  "credit": scene["image"].get("credit", "")}
+                from .template_tutorial import scene_photos
+
+                covers = [(c, p.get("credit", "")) for p in scene_photos(scene)
+                          if (c := load_cover(p["path"], w, h - 40)) is not None] if h >= 220 else []
+                if covers:
+                    L["image"] = {"covers": covers, "x": X0, "y": y + 22, "w": w, "h": h - 40, "t0": t + 0.15}
             if st == "outro":
                 L["follow_at"] = (y + 30, t + 0.15)
 
@@ -260,10 +267,21 @@ class TerminalRenderer(SceneRenderer):
                 for ln in sl:
                     t = self._typed(items, text_img(ln, fs, (*k["text"], 255)), X0, y, ln, fs.getlength("M"), t + 0.6, 60)
                     y += int(fs.size * 1.4)
+            if (scene.get("image") or {}).get("path"):
+                from .template_tutorial import load_cover
+
+                h = min(460, 1130 - (y + 22) - 50)
+                w = min(CW, int(h * 1.6))
+                from .template_tutorial import scene_photos
+
+                covers = [(c, p.get("credit", "")) for p in scene_photos(scene)
+                          if (c := load_cover(p["path"], w, h - 40)) is not None] if h >= 220 else []
+                if covers:
+                    L["image"] = {"covers": covers, "x": X0, "y": y + 22, "w": w, "h": h - 40, "t0": t + 0.3}
 
         elif st == "verify":
             fb = mono(56, True)
-            badge = "FACT-CHECK: PASSED"
+            badge = "REALITY CHECK"
             t = self._typed(items, glow_text(badge, fb, k["accent"]), X0 - GLOW_PAD, y - GLOW_PAD, badge, fb.getlength("M"), t, 40, GLOW_PAD)
             y += 110
             bf = mono(44)
@@ -286,22 +304,36 @@ class TerminalRenderer(SceneRenderer):
         out = 1 - prog(t, dur - 0.15, 0.15)
         k = self.k
         cursor_at = None
+        if L.get("backdrop") is not None:  # faint photo inside the window, under everything
+            from .template_tutorial import kenburns
+
+            from .template_tutorial import slide
+
+            bw, bh = WIN[2] - WIN[0] - 8, WIN[3] - WIN[1] - 72
+            bi, blocal, bfade = slide(len(L["backdrop"]), t, 0.0, dur)
+            ph = kenburns(L["backdrop"][bi], bw, bh, blocal).convert("L").convert("RGBA")
+            tint = Image.new("RGBA", ph.size, (*k["accent"], 255))
+            ph = Image.blend(ph, tint, 0.35)
+            put(fr, ph, WIN[0] + 4, WIN[1] + 68, 0.16 * out * bfade)
         if L.get("visual"):  # first, so card backgrounds sit under the typed text
             self._draw_visual(fr, L["visual"], t, out)
         if L.get("image") and t >= L["image"]["t0"]:  # a little image.png window
-            from .template_tutorial import kenburns
+            from .template_tutorial import kenburns, slide
 
             I = L["image"]
             pp = prog(t, I["t0"], 0.35)
-            photo = kenburns(I["cover"], I["w"], I["h"], (t - I["t0"]) / max(dur - I["t0"], 0.1))
+            si, slocal, sfade = slide(len(I["covers"]), t, I["t0"], dur)
+            cover, credit = I["covers"][si]
+            photo = kenburns(cover, I["w"], I["h"], slocal)
             win = Image.new("RGBA", (I["w"] + 8, I["h"] + 84), (*k["frame"], 255))
             wd = ImageDraw.Draw(win)
             for i, c in enumerate(TRAFFIC):
                 wd.ellipse((16 + i * 26, 12, 32 + i * 26, 28), fill=(*c, 255))
             wd.text((I["w"] / 2, 20), "image.png", font=mono(24), fill=(*k["muted"], 255), anchor="mm")
             win.paste(photo, (4, 40))
-            wd.text((14, I["h"] + 62), "// " + I["credit"], font=mono(22), fill=(*k["muted"], 255), anchor="lm")
-            put(fr, win, I["x"] - 4, I["y"] + (1 - pp) * 20, out * pp)
+            wd.text((14, I["h"] + 62), "// " + credit + (f"   [{si + 1}/{len(I['covers'])}]" if len(I["covers"]) > 1 else ""),
+                    font=mono(22), fill=(*k["muted"], 255), anchor="lm")
+            put(fr, win, I["x"] - 4, I["y"] + (1 - pp) * 20, out * pp * (sfade if si else 1))
         for it in L["items"]:
             if t < it["start"]:
                 break

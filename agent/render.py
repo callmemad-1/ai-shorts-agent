@@ -331,7 +331,7 @@ class SceneRenderer:
                     d.text((86, 28 + i * 56), ln, font=bf, fill=white)
                 L["bullets"].append(card)
             f = font(F_BLACK, 84)
-            L["badge_text"] = text_img("FACT-CHECKED", f, (*self.c["verified"], 255))
+            L["badge_text"] = text_img("REALITY CHECK", f, (*self.c["verified"], 255))
         return L
 
     def draw_scene(self, fr: Image.Image, L: dict, t: float, dur: float):

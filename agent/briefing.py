@@ -163,6 +163,10 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
     script["date_label"] = today.strftime("%b %d, %Y").upper()
     save_json(script, folder / "script.json")
     write_script_md(script, fc, folder / "script.md")
+    if cfg.get("images", {}).get("_want"):  # photos before recording, so the first render has them
+        from .images import maybe_add
+
+        script = maybe_add(folder / "script.json", cfg, claude, asked=True)
     voice = tts.synthesize(script, cfg, folder / "voice")
     save_json(voice, folder / "voice" / "timings.json")
     mp4 = render.render_video(cfg, script, voice, folder / "short.mp4")
@@ -195,6 +199,13 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
                 cfg["tts"]["engine"] = "edge"
     if picks:
         cfg["video"]["template"] = render.ask_template(cfg, b["stories"][picks[0] - 1].get("category", ""))
+        want_photos = False
+        if cfg.get("images", {}).get("enabled", True):
+            try:
+                want_photos = input("Add real photos (free-licence; you approve each one)? [Y/n] ").strip().lower() not in ("n", "no")
+            except EOFError:
+                pass
+        cfg.setdefault("images", {})["_want"] = want_photos
     made = []
     for n in picks:
         st, fc = b["stories"][n - 1], b["checks"][n - 1]

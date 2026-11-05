@@ -80,6 +80,7 @@ def main() -> int:
     ap.add_argument("--reuse-takes", action="store_true", help="with --tts mine: re-process your kept recordings, no prompts")
     ap.add_argument("--template", choices=["tutorial", "terminal", "news", "editorial", "chat", "classic"], default=None, help="video look for this run")
     ap.add_argument("--brain", choices=["api", "subscription"], default=None, help="who researches and writes: API key or your Claude subscription")
+    ap.add_argument("--no-images", action="store_true", help="don't offer to add real photos")
     ap.add_argument("--out", default=None, help="output folder (default outputs/YYYY-MM-DD/<topic>)")
     args = ap.parse_args()
 
@@ -89,6 +90,8 @@ def main() -> int:
         cfg["tts"]["engine"] = args.tts
     if args.template:
         cfg["video"]["template"] = args.template
+    if args.no_images:
+        cfg.setdefault("images", {})["enabled"] = False
     if args.reuse_takes:
         cfg["tts"]["engine"], cfg["tts"]["reuse_takes"] = "mine", True
     today = dt.date.today()
@@ -149,6 +152,10 @@ def main() -> int:
             return 0
 
     folder.mkdir(parents=True, exist_ok=True)
+    if args.stop_after not in ("script",):  # offer real photos before recording/rendering
+        from agent.images import maybe_add
+
+        script = maybe_add(folder / "script.json", cfg) if (folder / "script.json").exists() else script
     voice = tts.synthesize(script, cfg, folder / "voice")
     save_json(voice, folder / "voice" / "timings.json")
     if args.stop_after == "tts":

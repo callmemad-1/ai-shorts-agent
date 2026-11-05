@@ -28,7 +28,7 @@ PAPER = {"paper": "#FBF7EE", "rule": "#D9E4F2", "margin": "#F2A7A7", "ink": "#1F
 ACCENT = {"launch": "#2F6FED", "product": "#2F6FED", "policy": "#E8590C", "debate": "#E8590C",
           "research": "#0E9F9A", "security": "#E5484D", "business": "#7C3AED"}
 KICKER = {"hook": "TODAY'S QUESTION", "setup": "THE BASICS", "twist": "PLOT TWIST", "stat": "BY THE NUMBERS",
-          "example": "THINK OF IT LIKE", "stakes": "WHY YOU SHOULD CARE", "verify": "QUICK FACT CHECK",
+          "example": "THINK OF IT LIKE", "stakes": "WHY YOU SHOULD CARE", "verify": "REALITY CHECK",
           "outro": "LESSON IN ONE LINE", "point": "WHAT HAPPENED"}
 MOOD = {"hook": "curious", "twist": "surprised", "stat": "surprised", "verify": "serious", "outro": "happy"}
 X0, X1 = 84, 948            # writing column inside the page (right side clear of Shorts buttons)
@@ -279,6 +279,21 @@ def kenburns(cover: Image.Image, w: int, h: int, p: float) -> Image.Image:
     return cover.crop((int(x0), int(y0), int(x0 + cw), int(y0 + ch))).resize((w, h), Image.BILINEAR)
 
 
+def scene_photos(scene: dict) -> list[dict]:
+    """The scene's approved photos (one or several), existing files only."""
+    photos = scene.get("images") or ([scene["image"]] if scene.get("image") else [])
+    return [p for p in photos if p.get("path") and Path(p["path"]).exists()]
+
+
+def slide(n: int, t: float, t0: float, dur: float) -> tuple[int, float, float]:
+    """Slideshow timing: which photo is up, how far through its own zoom, and its
+    fade-in (0..1) so each photo cross-fades in over 0.3 s."""
+    span = max(dur - t0, 0.1) / max(n, 1)
+    i = min(n - 1, int(max(t - t0, 0) / span))
+    local = (t - t0 - i * span) / span
+    return i, local, min(1.0, (t - t0 - i * span) / 0.3) if i else 1.0
+
+
 class TutorialRenderer(SceneRenderer):
     # --- the skin: other templates (template_skins.py) override these ---
     FACES = FACES
@@ -306,15 +321,19 @@ class TutorialRenderer(SceneRenderer):
         return f, wrap(text, f, max_w)
 
     def _attach_image(self, L: dict, scene: dict, y: int, t0: float):
-        im = scene.get("image") or {}
-        path = im.get("path", "")
-        if not path or not Path(path).exists():
+        photos = scene_photos(scene)
+        if not photos:
             return
+        im, path = photos[0], photos[0]["path"]
         V = L.get("visual")
         if V and V.get("kind") == "whois":  # a real photo instead of the cartoon avatar
             V["photo"] = load_cover(path, 150, 150, 1.0)
             return
-        if V:
+        if V:  # keep the graphic; the photo goes behind it as a soft backdrop
+            x0, y0, x1, y1 = self.BACKDROP_BOX
+            covers = [(c, p.get("credit", "")) for p in photos if (c := load_cover(p["path"], x1 - x0, y1 - y0)) is not None]
+            if covers:
+                L["backdrop"] = {"covers": covers, "box": self.BACKDROP_BOX, "t0": 0.0}
             return
         if self.TEACHER:  # beside the teacher: the page is free to its bottom on the right
             x, bottom, max_w = 360, 1110, X1 - 360
@@ -325,9 +344,21 @@ class TutorialRenderer(SceneRenderer):
             return
         w = min(max_w, int(h * 1.6))
         h = min(h, int(w / 1.3))
-        cover = load_cover(path, w, h)
-        if cover is not None:
-            L["image"] = {"cover": cover, "x": x, "y": y, "w": w, "h": h, "t0": t0, "credit": im.get("credit", "")}
+        covers = [(c, p.get("credit", "")) for p in photos if (c := load_cover(p["path"], w, h)) is not None]
+        if covers:
+            L["image"] = {"covers": covers, "x": x, "y": y, "w": w, "h": h, "t0": t0}
+
+    BACKDROP_BOX = (60, 254, 1020, 1174)  # inside the notebook page
+    BACKDROP_ALPHA = 0.16
+
+    def _draw_backdrop(self, fr: Image.Image, B: dict, t: float, dur: float, out: float):
+        x0, y0, x1, y1 = B["box"]
+        i, local, fade = slide(len(B["covers"]), t, B["t0"], dur)
+        cover, credit = B["covers"][i]
+        photo = kenburns(cover, x1 - x0, y1 - y0, local).convert("RGBA")
+        put(fr, photo, x0, y0, self.BACKDROP_ALPHA * out * prog(t, 0, 0.5) * fade)
+        f = self.font("note", 22)
+        ImageDraw.Draw(fr).text((x1 - 12, y1 - 14), credit, font=f, fill=(*self.p["soft"], int(220 * out)), anchor="rd")
 
     def _frame_image(self, photo: Image.Image, credit: str) -> Image.Image:
         """Tutorial: a Polaroid taped onto the page, credit written on the white strip."""
@@ -345,9 +376,13 @@ class TutorialRenderer(SceneRenderer):
         if t < I["t0"]:
             return
         pp = prog(t, I["t0"], 0.4)
-        photo = kenburns(I["cover"], I["w"], I["h"], (t - I["t0"]) / max(dur - I["t0"], 0.1))
-        framed = self._frame_image(photo, I["credit"])
-        put(fr, framed, I["x"] - 12, I["y"] + (1 - pp) * 30, out * pp)
+        i, local, fade = slide(len(I["covers"]), t, I["t0"], dur)
+        cover, credit = I["covers"][i]
+        if fade < 1 and i:  # cross-fade: the previous photo stays underneath
+            prev = self._frame_image(kenburns(I["covers"][i - 1][0], I["w"], I["h"], 1.0), I["covers"][i - 1][1])
+            put(fr, prev, I["x"] - 12, I["y"], out)
+        framed = self._frame_image(kenburns(cover, I["w"], I["h"], local), credit)
+        put(fr, framed, I["x"] - 12, I["y"] + (1 - pp) * 30, out * pp * fade)
 
     def _kicker_img(self, text: str) -> Image.Image:
         return text_img(text, self.font("note_bold", 34), (*self.acc, 255))
@@ -548,6 +583,7 @@ class TutorialRenderer(SceneRenderer):
                 for ln in sl:
                     t = self._write(items, text_img(ln, fs, (*ink, 255)), X0, y, t + 0.6, max(0.2, len(ln) / 40))
                     y += int(fs.size * 1.35)
+            self._attach_image(L, scene, y + 24, t + 0.3)
             L["point_at"] = 0.3
 
         elif st == "verify":
@@ -746,6 +782,8 @@ class TutorialRenderer(SceneRenderer):
     def draw_scene(self, fr: Image.Image, L: dict, t: float, dur: float):
         out = 1 - prog(t, dur - 0.15, 0.15)
         d = ImageDraw.Draw(fr, "RGBA")
+        if L.get("backdrop"):  # faint photo first, everything else on top
+            self._draw_backdrop(fr, L["backdrop"], t, dur, out)
         for m in L["marks"]:  # highlighter strokes, underlines and panels sit under the writing
             if t < m["start"]:
                 continue

@@ -25,6 +25,8 @@ INTER = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 
 # ====================================================================== news
 class NewsRenderer(TutorialRenderer):
+    BACKDROP_BOX = (0, 230, 1080, 1160)
+    BACKDROP_ALPHA = 0.3
     FACES = {
         "marker": [(SYS / "Avenir Next Condensed.ttc", 8), (INTER / "InterDisplay-Black.otf", 0)],
         "note": [(SYS / "Avenir Next.ttc", 5), (INTER / "Inter-Medium.otf", 0)],
@@ -36,7 +38,7 @@ class NewsRenderer(TutorialRenderer):
                "cap_text": "#FFFFFF", "cap_hl": "#E11D2E", "cap_hl_text": "#FFFFFF", "cap_stroke": "#050B1A",
                "before": "#3A1520", "after": "#12321F", "bar_dim": "#5B6B8C"}
     KICKER = {"hook": "TOP STORY", "setup": "WHAT HAPPENED", "twist": "THE TWIST", "stat": "BY THE NUMBERS",
-              "example": "EXPLAINER", "stakes": "WHY IT MATTERS", "verify": "FACT CHECK", "outro": "BOTTOM LINE",
+              "example": "EXPLAINER", "stakes": "WHY IT MATTERS", "verify": "REALITY CHECK", "outro": "BOTTOM LINE",
               "point": "WHAT HAPPENED"}
     TEACHER = False
     CONTENT_BOTTOM = 1120
@@ -105,7 +107,8 @@ class NewsRenderer(TutorialRenderer):
         d = ImageDraw.Draw(fr)
         d.rectangle((0, y0, self.W, y1), fill=(255, 255, 255, 255))
         f = self.font("note_bold", 34)
-        msg = f"{self.script.get('story_title') or self.script.get('title', '')}   •   Fact-checked against independent sources   •   "
+        srcs = " · ".join(dict.fromkeys(s.get("publisher", "") for s in self.script.get("sources", []) if s.get("publisher")))
+        msg = f"{self.script.get('story_title') or self.script.get('title', '')}   •   " + (f"Sources: {srcs}   •   " if srcs else "")
         w = f.getlength(msg)
         x = 250 - (gt * 140) % w
         while x < self.W:
@@ -146,6 +149,8 @@ EDIT_ACCENT = {"launch": "#0F5C8C", "product": "#0F5C8C", "research": "#0F5C8C",
 
 
 class EditorialRenderer(TutorialRenderer):
+    BACKDROP_BOX = (40, 240, 1040, 1236)
+    BACKDROP_ALPHA = 0.12
     FACES = {
         "marker": [(SUP / "Georgia Bold.ttf", 0), (SYS / "NewYork.ttf", 0), (INTER / "InterDisplay-Black.otf", 0)],
         "note": [(SUP / "Georgia Italic.ttf", 0), (INTER / "Inter-Medium.otf", 0)],
@@ -184,7 +189,7 @@ class EditorialRenderer(TutorialRenderer):
         d.line([(X0 - 20, 168), (X1 + 30, 168)], fill=(*self.p["ink"], 255), width=1)
         date = self.script.get("date_label", "")
         f = self.font("note_bold", 26)
-        d.text((X0 - 20, 194), (date.title() if date else "") + "  ·  The daily AI brief, fact-checked", font=f, fill=(*self.p["soft"], 255), anchor="lm")
+        d.text((X0 - 20, 194), (date.title() if date else "") + "  ·  The daily AI brief", font=f, fill=(*self.p["soft"], 255), anchor="lm")
         return layer
 
     def _progress(self, fr: Image.Image, idx: int, t: float):
@@ -228,6 +233,8 @@ class EditorialRenderer(TutorialRenderer):
 
 # ====================================================================== chat
 class ChatRenderer(TutorialRenderer):
+    BACKDROP_BOX = (0, 252, 1080, 1250)
+    BACKDROP_ALPHA = 0.2
     FACES = {
         "marker": [(SYS / "Avenir Next.ttc", 0), (INTER / "InterDisplay-Bold.otf", 0)],
         "note": [(SYS / "Avenir Next.ttc", 5), (INTER / "Inter-Medium.otf", 0)],
@@ -267,7 +274,7 @@ class ChatRenderer(TutorialRenderer):
         layer.alpha_composite(icon_img("robot", 70, (255, 255, 255), (255, 255, 255)), (X0 + 35, 125))
         d.text((X0 + 136, 142), self.cfg["brand"]["name"], font=self.font("marker", 40), fill=(*self.p["ink"], 255), anchor="lm")
         d.ellipse((X0 + 138, 182, X0 + 152, 196), fill=(*self.p["good"], 255))
-        d.text((X0 + 162, 189), "online · fact-checked", font=self.font("note", 28), fill=(*self.p["soft"], 255), anchor="lm")
+        d.text((X0 + 162, 189), "online", font=self.font("note", 28), fill=(*self.p["soft"], 255), anchor="lm")
         return layer
 
     def _progress(self, fr: Image.Image, idx: int, t: float):
@@ -327,9 +334,10 @@ class ChatRenderer(TutorialRenderer):
                 fs = self.font("note", 42)
                 im = self._bubble(wrap(os_["sub"], fs, bw)[:2], fs, ink, white)
                 pop(im, t + 0.4); y += im.height + 22
+            self._attach_image(L, scene, y + 10, t + 0.6)
         elif st == "verify":
             fb = self.font("note_bold", 42)
-            im = self._bubble(["Fact check"], self.font("marker", 46), white, acc)
+            im = self._bubble(["Reality check"], self.font("marker", 46), white, acc)
             pop(im, t); y += im.height + 22; t += 0.6
             for b in (os_.get("bullets") or [])[:3]:
                 lines = wrap(b, fb, bw - 70)

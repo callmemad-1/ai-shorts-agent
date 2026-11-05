@@ -183,7 +183,7 @@
   "brand": {
     "name": "TechorumAI News",
     "handle": "@TechorumAI News",
-    "tagline": "Daily AI news · fact-checked",
+    "tagline": "Daily AI news",
     "colors": {
       "bg_top": "#0B1026",
       "bg_bottom": "#04050C",
@@ -207,5 +207,9 @@
     "max_turns": 40
   },
   "web_fetch_tool": "web_fetch_20250910",
-  "web_fetch_beta": "web-fetch-2025-09-10"
+  "web_fetch_beta": "web-fetch-2025-09-10",
+  "images": {
+    "enabled": true,
+    "target_share": 0.6
+  }
 }

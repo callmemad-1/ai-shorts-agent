@@ -39,9 +39,14 @@ write a short image-search query (2-5 words) for a free photo library. Good: the
 person ("Yassamin Ansari official portrait"), the real place ("US Capitol"), the real kind
 of thing ("data center server racks", "Seoul stock exchange board"). Never suggest a
 photo that would imply something the scene doesn't say (no random company's building
-captioned as the company in the story). At most 4 scenes; skip the outro."""
+captioned as the company in the story). Skip the outro and the "verify" (reality check)
+scene. Scenes that already have a graphic can still get a photo: it's shown as a soft
+backdrop behind the graphic, so pick a scene-setting photo (a place, a building, a
+trading floor) rather than a close-up."""
 
-IDEAS_USER = """Scenes:
+IDEAS_USER = """Aim for real photos in about {target} of these {total} scenes.
+
+Scenes:
 {scenes}
 
 Return one ```json block:
@@ -138,8 +143,12 @@ def primary_pages(script: dict, cfg: dict) -> list[str]:
 def suggest(claude, cfg: dict, script: dict) -> list[dict]:
     scenes = [{"id": s["id"], "type": s["type"], "voiceover": s["voiceover"],
                "has_graphic": bool((s.get("on_screen") or {}).get("visual"))} for s in script["scenes"] if s["type"] != "outro"]
-    data, _ = claude.ask_json(cfg["models"]["script"], IDEAS_SYSTEM, IDEAS_USER.format(scenes=json.dumps(scenes, indent=1)), search=False)
-    return [i for i in data.get("ideas", []) if i.get("query")][:4]
+    total = len(script["scenes"])
+    target = max(1, round(cfg.get("images", {}).get("target_share", 0.6) * total))
+    data, _ = claude.ask_json(cfg["models"]["script"], IDEAS_SYSTEM,
+                              IDEAS_USER.format(target=target, total=total, scenes=json.dumps(scenes, indent=1)), search=False)
+    ok = {s["id"] for s in script["scenes"] if s["type"] not in ("outro", "verify")}
+    return [i for i in data.get("ideas", []) if i.get("query") and i.get("scene_id") in ok][: target + 1]
 
 
 def _show(files: list[Path]):
@@ -154,14 +163,26 @@ def choose(script_path: Path, cfg: dict, claude=None, auto: bool = False) -> dic
     script = json.loads(script_path.read_text())
     folder = script_path.parent / "images"
     folder.mkdir(exist_ok=True)
-    claude = claude or make_claude(cfg)
-    ideas = suggest(claude, cfg, script)
+    ideas = []
+    for brain in ([claude] if claude else []) + ["default", "subscription"]:
+        try:
+            ideas = suggest(brain if not isinstance(brain, str) else make_claude(cfg, None if brain == "default" else brain), cfg, script)
+            break
+        except Exception as e:  # noqa: BLE001 - e.g. API credits ran out: try the next brain
+            log(f"Couldn't get photo ideas ({str(e)[:80]}); trying another way")
+    if not ideas:  # last resort: the named people on profile cards, and the hook
+        for sc in script["scenes"]:
+            v = (sc.get("on_screen") or {}).get("visual") or {}
+            if v.get("kind") == "whois" and v.get("name"):
+                ideas.append({"scene_id": sc["id"], "query": f"{v['name']} official portrait", "why": "the named person"})
+        hook = script["scenes"][0]
+        ideas.insert(0, {"scene_id": hook["id"], "query": (hook.get("on_screen") or {}).get("headline", ""), "why": "the hook"})
     press = [x for u in primary_pages(script, cfg) if (x := og_image(u))]
     by_id = {s["id"]: s for s in script["scenes"]}
     credits = []
     for idea in ideas:
         sc = by_id.get(idea["scene_id"])
-        if not sc:
+        if not sc or sc.get("image"):
             continue
         opts = commons(idea["query"]) + openverse(idea["query"]) + (press if sc["type"] in ("hook", "setup") else [])
         print(f"\n── Scene {sc['id']} · {sc['type'].upper()}: “{sc['voiceover'][:80]}”")
@@ -182,23 +203,32 @@ def choose(script_path: Path, cfg: dict, claude=None, auto: bool = False) -> dic
             pick = ""
         else:
             _show(thumbs)
-            pick = input(f"   Pick 1-{len(opts)} for this scene · Enter = skip: ").strip()
-        if not (pick.isdigit() and 1 <= int(pick) <= len(opts)):
-            sc.pop("image", None)
+            pick = input(f"   Pick one or more (e.g. 1 or 1,3) · Enter = skip: ").strip()
+        nums = list(dict.fromkeys(int(n) for n in re.findall(r"\d+", pick) if 1 <= int(n) <= len(opts)))
+        if not nums:
             continue
-        o = opts[int(pick) - 1]
-        dst = folder / f"scene{sc['id']:02d}.jpg"
-        try:
-            dst.write_bytes(_get(o["url"], timeout=40))
-        except Exception as e:  # noqa: BLE001
-            print(f"   Couldn't download the full image ({e}); skipping.")
+        chosen = []
+        for k, n in enumerate(nums, 1):
+            o = opts[n - 1]
+            dst = folder / (f"scene{sc['id']:02d}.jpg" if k == 1 else f"scene{sc['id']:02d}_{k}.jpg")
+            try:
+                dst.write_bytes(_get(o["url"], timeout=40))
+            except Exception as e:  # noqa: BLE001
+                print(f"   Couldn't download option {n} ({e}); skipping it.")
+                continue
+            chosen.append({"file": str(dst.relative_to(script_path.parent)), "path": str(dst.resolve()), "credit": o["credit"],
+                           "license": o["license"], "license_url": o["license_url"], "page": o["page"], "source": o["source"]})
+        if not chosen:
             continue
-        sc["image"] = {"file": str(dst.relative_to(script_path.parent)), "path": str(dst.resolve()), "credit": o["credit"], "license": o["license"],
-                       "license_url": o["license_url"], "page": o["page"], "source": o["source"]}
-        credits.append(sc["image"])
-        print(f"   ✓ Using it. Credit on screen: {o['credit']}")
+        sc["image"], sc["images"] = chosen[0], chosen  # "image" = the first, for one-photo layouts
+        credits += chosen
+        print(f"   ✓ Using {len(chosen)} photo{'s' if len(chosen) > 1 else ''}"
+              + (" (shown as a slideshow)" if len(chosen) > 1 else "") + ": " + "; ".join(c["credit"] for c in chosen))
     for t in folder.glob("scene*_option*.jpg"):
         t.unlink()
+    have = sum(1 for x in script["scenes"] if x.get("image"))
+    print(f"\nPhotos in {have} of {len(script['scenes'])} scenes ({have / len(script['scenes']):.0%}; "
+          f"target {cfg.get('images', {}).get('target_share', 0.6):.0%})")
     add_credits(script)
     script_path.write_text(json.dumps(script, indent=2, ensure_ascii=False))
     fc_path = script_path.parent / "factcheck.json"
@@ -210,10 +240,29 @@ def choose(script_path: Path, cfg: dict, claude=None, auto: bool = False) -> dic
     return script
 
 
+def maybe_add(script_path: Path, cfg: dict, claude=None, asked: bool | None = None) -> dict:
+    """The photo step inside a normal run: ask once (unless already answered), then pick.
+    Skipped with no one at the keyboard, when images.enabled is false, or when the script
+    already has photos."""
+    script = json.loads(script_path.read_text())
+    if not cfg.get("images", {}).get("enabled", True) or not sys.stdin.isatty():
+        return script
+    share = sum(1 for s in script["scenes"] if s.get("image")) / max(len(script["scenes"]), 1)
+    if share >= cfg.get("images", {}).get("target_share", 0.6) - 0.05:
+        return script
+    if asked is None:
+        try:
+            asked = input("\nAdd real photos (free-licence; you approve each one)? [Y/n] ").strip().lower() not in ("n", "no")
+        except EOFError:
+            asked = False
+    return choose(script_path, cfg, claude) if asked else script
+
+
 def add_credits(script: dict) -> None:
     """Licences like CC BY require credit: list every image in the YouTube description."""
     desc = re.sub(r"\n\nImage credits:.*", "", script.get("description", ""), flags=re.S)
-    lines = [f"- Scene {s['id']}: {s['image']['credit']} ({s['image']['page']})" for s in script["scenes"] if s.get("image")]
+    lines = [f"- Scene {s['id']}: {im['credit']} ({im['page']})"
+             for s in script["scenes"] for im in (s.get("images") or ([s["image"]] if s.get("image") else []))]
     script["description"] = desc + ("\n\nImage credits:\n" + "\n".join(lines) if lines else "")
 
 
