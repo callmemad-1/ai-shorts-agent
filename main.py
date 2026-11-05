@@ -35,6 +35,10 @@ def write_script_md(script: dict, fc: dict | None, path: Path) -> None:
         lines += ["", "## Recording sheet", "",
                   "Press Enter, wait one beat, then speak. After the last word, stay silent a second, then press Enter.",
                   "`/` = short breath · `//` = long pause · CAPITALS = stress that word", ""]
+        guide = [x for x in script.get("pronounce", []) if x.get("word") and x.get("say")]
+        if guide:
+            lines.append("**Say it like this:** " + " · ".join(
+                f"{x['word']} = *{x['say']}*" + (" (double-check)" if x["say"].endswith("?") else "") for x in guide) + "\n")
         if script["scenes"][0].get("start"):
             lines.append(f"**How to begin:** {script['scenes'][0]['start']}\n")
         for s in script["scenes"]:
@@ -134,6 +138,9 @@ def main() -> int:
 
         if not args.template and args.stop_after not in ("script", "tts"):
             cfg["video"]["template"] = render.ask_template(cfg, chk["chosen"]["story"].get("category", ""))
+        from agent.myvoice import fit_script_to_pace
+
+        fit_script_to_pace(cfg)
         script = scriptwriter.run(claude, cfg, chk["chosen"])
         script["date_label"] = today.strftime("%b %d, %Y").upper()
         save_json(script, folder / "script.json")

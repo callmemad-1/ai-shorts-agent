@@ -188,6 +188,44 @@ def align(text: str, wav: Path, duration: float):
     return out, matched / max(len(a), 1), " ".join(w.word.strip() for w in heard), missing
 
 
+# ---------------------------------------------------------------- pace
+PACE_FILE = Path(__file__).resolve().parent.parent / "voice_profile.json"
+
+
+def update_pace(script: dict, clips: list[dict]) -> float | None:
+    """Words per minute from this session's takes (first to last word of each line, so
+    leading and trailing silence don't count); kept as an average of the last 5 sessions."""
+    words = secs = 0.0
+    by_id = {c["scene_id"]: c for c in clips}
+    for sc in script["scenes"]:
+        c = by_id.get(sc["id"])
+        if c and c.get("words"):
+            words += len(c["words"])
+            secs += max(0.5, c["words"][-1]["end"] - c["words"][0]["start"])
+    if secs < 10:
+        return None
+    prof = json.loads(PACE_FILE.read_text()) if PACE_FILE.exists() else {"sessions": []}
+    prof["sessions"] = (prof["sessions"] + [round(words / secs * 60, 1)])[-5:]
+    prof["wpm"] = round(sum(prof["sessions"]) / len(prof["sessions"]), 1)
+    PACE_FILE.write_text(json.dumps(prof, indent=1))
+    return prof["wpm"]
+
+
+def fit_script_to_pace(cfg: dict) -> None:
+    """Size the next script to how fast YOU speak (only when recording your own voice).
+    Room is left for the pauses between scenes and the // beats in the read marks."""
+    if cfg["tts"]["engine"] != "mine" or not PACE_FILE.exists():
+        return
+    wpm = json.loads(PACE_FILE.read_text()).get("wpm")
+    if not wpm:
+        return
+    sc = cfg["script"]
+    speaking = sc["target_seconds"] - 8 * cfg["tts"]["scene_gap_seconds"] - 4  # gaps + long pauses
+    sc["words_max"] = max(90, int(wpm * speaking / 60))
+    sc["words_min"] = sc["words_max"] - 20
+    log(f"Script sized to your pace ({wpm:.0f} wpm): {sc['words_min']}-{sc['words_max']} words")
+
+
 # ---------------------------------------------------------------- session
 def _dropped(folder: Path, sid: int) -> Path | None:
     for ext in ("wav", "m4a", "mp3", "aiff", "caf"):
@@ -223,6 +261,9 @@ def record_all(script: dict, cfg: dict, outdir: Path, reuse_takes: bool = False)
         print(f"── {n}/{len(scenes)} · {s['type'].upper()} " + "─" * 40)
         if s.get("tone"):
             print(f"   Tone: {s['tone']}")
+        say = [x for x in script.get("pronounce", []) if x.get("word") and x["word"].lower() in text.lower()]
+        if say:
+            print("   Say: " + " · ".join(f"{x['word']} = {x['say']}" for x in say))
         print(f"   “{format_read(s['read']) if s.get('read') else text}”")
         if n == len(scenes) and s.get("end"):
             print(f"   How to end: {s['end']}")
@@ -271,6 +312,9 @@ def record_all(script: dict, cfg: dict, outdir: Path, reuse_takes: bool = False)
     gap = cfg["tts"]["scene_gap_seconds"]
     total = sum(c["duration"] for c in clips) + gap * len(clips)
     log(f"Voiceover (your voice): {total:.1f}s")
+    wpm = update_pace(script, clips)
+    if wpm:
+        log(f"Your speaking pace: about {wpm:.0f} words a minute (next scripts are sized to it)")
     if total > cfg["script"]["max_seconds"]:
         log(f"Note: that's over {cfg['script']['max_seconds']}s. Re-record a little faster, or it's fine if the Short "
             "still feels tight (Shorts can run up to 3 minutes).")

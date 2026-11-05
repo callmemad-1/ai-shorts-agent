@@ -218,6 +218,18 @@ Delivery cues - the creator records this in their own voice, so every scene also
 - last scene "end": how to finish, max 12 words ("Slow down, drop your pitch on
   'Search', then hold a beat").
 
+Pronunciation - top-level "pronounce": a list of {{"word": "...", "say": "..."}} for every
+name, acronym or term in the voiceover a general reader might say wrong ("Ansari" ->
+"an-SAR-ee", "KOSPI" -> "KOS-pee", "Hut 8" -> "hut eight"). Simple respelling, stressed
+syllable in CAPITALS. If you're not sure how a name is said, add "?" at the end of "say"
+so the creator double-checks it.
+
+Easy to say out loud:
+- Max 18 words per sentence; one breath per sentence.
+- Max 3 spoken numbers in the whole script (percent, money, counts, dates spelled out).
+  Put other numbers on screen only, or leave them out.
+- No tongue-twisters (runs of similar sounds like "six sites' certificates").
+
 Return one ```json block:
 {{"title": "on-video title, max 6 words",
   "youtube_title": "max 70 chars, follows the title rules",
@@ -226,7 +238,7 @@ Return one ```json block:
   "scenes": [{{"id": 1, "type": "hook", "voiceover": "...",
      "read": "... | ... *word* ... || ...", "tone": "...", "start": "...",
      "on_screen": {{"headline": "...", "sub": "..."}}, "claim_ids": ["..."]}}]}}
-The last scene carries "end" instead of "start".
+The last scene carries "end" instead of "start". Add "pronounce": [...] at the top level.
 """
 
 AUDIT_SYSTEM = """You are the final standards editor. Compare a Shorts script to the list of

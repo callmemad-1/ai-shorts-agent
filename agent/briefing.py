@@ -154,6 +154,9 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
 
     folder.mkdir(parents=True, exist_ok=True)
     save_json({"story": story, "factcheck": fc}, folder / "factcheck.json")
+    from .myvoice import fit_script_to_pace
+
+    fit_script_to_pace(cfg)
     script = scriptwriter.run(claude, cfg, {"story": story, "factcheck": fc})
     script["date_label"] = today.strftime("%b %d, %Y").upper()
     save_json(script, folder / "script.json")

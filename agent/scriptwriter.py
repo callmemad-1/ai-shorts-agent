@@ -80,6 +80,49 @@ def format_read(read: str) -> str:
     return re.sub(r"\s*\|\|\s*", "  //  ", re.sub(r"\s*(?<!\|)\|(?!\|)\s*", " / ", out)).strip()
 
 
+NUMBER_WORDS = ("two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+                "seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand "
+                "million billion trillion percent half quarter dozen").split()
+MAX_SENTENCE_WORDS = 18
+
+
+def spoken_numbers(text: str) -> list[str]:
+    """Number phrases a listener has to hold in their head ("twenty-three percent",
+    "about five point three", "2027"). 'one' alone is skipped: it's usually 'one lawmaker'."""
+    raw = re.findall(r"[A-Za-z0-9.,%$'-]+", text)
+    found, cur = [], []
+    for i, tok in enumerate(raw):
+        w = tok.lower()
+        parts = w.strip(".,").split("-")
+        named = any(c.isdigit() for c in w) and i > 0 and raw[i - 1][:1].isupper() and not cur  # "Hut 8", "GPT 5"
+        is_num = not named and (any(c.isdigit() for c in w) or all(p in NUMBER_WORDS or p == "point" or (p == "one" and cur) for p in parts if p))
+        if is_num:
+            cur.append(w)
+        else:
+            if cur and cur != ["point"]:
+                found.append(" ".join(cur).strip(".,"))
+            cur = []
+    if cur and cur != ["point"]:
+        found.append(" ".join(cur).strip(".,"))
+    return found
+
+
+def check_speakability(scenes: list[dict], max_numbers: int = 3) -> list[str]:
+    """Lines must be easy to read aloud: one breath per sentence, few numbers to hold."""
+    problems = []
+    for s in scenes:
+        for sent in re.split(r"(?<=[.!?])\s+", s.get("voiceover", "")):
+            n = len(sent.split())
+            if n > MAX_SENTENCE_WORDS:
+                problems.append(f"Scene {s.get('id')}: a {n}-word sentence is hard to say in one breath; "
+                                f"split it (max {MAX_SENTENCE_WORDS}): {sent[:60]!r}...")
+    spoken = [n for s in scenes if s.get("type") != "outro" for n in spoken_numbers(s.get("voiceover", ""))]
+    if len(spoken) > max_numbers:
+        problems.append(f"The voiceover says {len(spoken)} numbers ({', '.join(spoken)}); keep it to {max_numbers} "
+                        "and put the rest on screen only.")
+    return problems
+
+
 def check_delivery(scenes: list[dict]) -> list[str]:
     """Recording cues must exist and must not change a single fact-checked word."""
     problems = []
@@ -124,6 +167,7 @@ def validate(script: dict, usable_ids: set[str], cfg: dict, facts: str = "") -> 
     if types.count("example") != 1:
         problems.append(f"Need exactly one 'example' scene (an everyday comparison), found {types.count('example')}.")
     problems += check_delivery(scenes)
+    problems += check_speakability(scenes, cfg["script"].get("max_spoken_numbers", 3))
     for s in scenes:
         if s.get("type") == "verify" and not 2 <= len((s.get("on_screen") or {}).get("bullets") or []) <= 3:
             problems.append(f"Scene {s.get('id')}: the reality check needs 2-3 bullets (the screen shows at most 3).")
@@ -224,6 +268,8 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
             seen.add(e["url"])
             sources.append({"url": e["url"], "publisher": e.get("publisher", "")})
     script["sources"] = sources
+    said = " ".join(s.get("voiceover", "") for s in script.get("scenes", [])).lower()
+    script["pronounce"] = [x for x in script.get("pronounce", []) if isinstance(x, dict) and str(x.get("word", "")).lower() in said]
     script["story_title"] = story["title"]
     script["category"] = story.get("category", "")
     script["claims"] = usable
