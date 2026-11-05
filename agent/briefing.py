@@ -84,9 +84,10 @@ def briefing_text(b: dict, full: bool, aggregators: list[str]) -> str:
                 out.append(f"Angle: {n['angle']}")
         if not fc["publishable"]:
             out.append(f"Why it failed: {fc.get('reason', '')}")
-        facts = [c["final_wording"] for c in fc["usable_claims"]]
-        for f in facts if full else facts[:3]:
-            out.append(f"  ✓ {f}")
+        TAG = {"P": "primary", "M": "major outlet"}
+        for c in fc["usable_claims"] if full else fc["usable_claims"][:3]:
+            tags = [TAG[t] for t in c.get("source_tiers", []) if t in TAG]
+            out.append(f"  ✓ {c['final_wording']}" + (f"  [{' + '.join(tags)}]" if tags else ""))
         for c in (fc.get("caveats") or [])[: None if full else 2]:
             out.append(f"  ! {c}")
         pubs = _publishers(fc, aggregators)
@@ -96,7 +97,8 @@ def briefing_text(b: dict, full: bool, aggregators: list[str]) -> str:
             for c in fc["usable_claims"]:
                 for e in c.get("evidence", []):
                     if not any(a in e.get("url", "") for a in aggregators):
-                        out.append(f"    - {e.get('publisher', '')}: {e.get('url', '')}")
+                        tier = {"P": " [primary]", "M": " [major]"}.get(e.get("tier", ""), "")
+                        out.append(f"    - {e.get('publisher', '')}{tier}: {e.get('url', '')}")
         out.append("")
     return "\n".join(out)
 
