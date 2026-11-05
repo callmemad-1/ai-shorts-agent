@@ -169,8 +169,17 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
         script = maybe_add(folder / "script.json", cfg, claude, asked=True)
     voice = tts.synthesize(script, cfg, folder / "voice")
     save_json(voice, folder / "voice" / "timings.json")
+    script["template"] = cfg["video"].get("template", "classic")  # remembered for the social carousel
+    save_json(script, folder / "script.json")
     mp4 = render.render_video(cfg, script, voice, folder / "short.mp4")
     render.render_still(cfg, script, voice, 0, 2.5, folder / "cover.png")
+    if cfg.get("social", {}).get("enabled", True):
+        try:
+            from .social import make as make_posts
+
+            make_posts(folder / "script.json", cfg, claude)
+        except Exception as e:  # noqa: BLE001 - the video is done; posts can be redone later
+            log(f"Social posts failed ({e}); run: python -m agent.social {folder / 'script.json'}")
     add_history(script.get("story_title", ""), [s["url"] for s in script.get("sources", [])], today)
     return mp4
 

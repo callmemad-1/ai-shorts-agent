@@ -81,6 +81,7 @@ def main() -> int:
     ap.add_argument("--template", choices=["tutorial", "terminal", "news", "editorial", "chat", "classic"], default=None, help="video look for this run")
     ap.add_argument("--brain", choices=["api", "subscription"], default=None, help="who researches and writes: API key or your Claude subscription")
     ap.add_argument("--pattern", choices=["story", "explainer"], default=None, help="script pattern (skips the question)")
+    ap.add_argument("--no-social", action="store_true", help="don't write the YouTube/Instagram/LinkedIn posts")
     ap.add_argument("--no-images", action="store_true", help="don't offer to add real photos")
     ap.add_argument("--out", default=None, help="output folder (default outputs/YYYY-MM-DD/<topic>)")
     args = ap.parse_args()
@@ -163,8 +164,17 @@ def main() -> int:
     if args.stop_after == "tts":
         return 0
 
+    script["template"] = cfg["video"].get("template", "classic")  # remembered for the social carousel
+    save_json(script, folder / "script.json") if (folder / "script.json").exists() else None
     mp4 = render.render_video(cfg, script, voice, folder / "short.mp4")
     render.render_still(cfg, script, voice, 0, 2.5, folder / "cover.png")
+    if cfg.get("social", {}).get("enabled", True) and not args.no_social and (folder / "script.json").exists():
+        try:
+            from agent.social import make as make_posts
+
+            make_posts(folder / "script.json", cfg)
+        except Exception as e:  # noqa: BLE001 - the video is done; posts can be redone later
+            log(f"Social posts failed ({e}); run: python -m agent.social {folder / 'script.json'}")
     if not args.from_script:
         add_history(script.get("story_title", script.get("title", "")), [s["url"] for s in script.get("sources", [])], today)
     log(f"Done -> {mp4}")

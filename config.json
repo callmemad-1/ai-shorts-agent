@@ -212,5 +212,8 @@
   "images": {
     "enabled": true,
     "target_share": 0.6
+  },
+  "social": {
+    "enabled": true
   }
 }
