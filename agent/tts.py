@@ -72,7 +72,7 @@ def synth_edge(text: str, wav: Path, cfg: dict, speed: float):
     words = asyncio.run(_edge(text, cfg["tts"]["edge_voice"], rate, mp3))
     if mp3.stat().st_size == 0:
         raise RuntimeError("edge-tts returned no audio")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(mp3), "-ac", "1", "-ar", str(SR), str(wav)], check=True)
+    subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", str(mp3), "-ac", "1", "-ar", str(SR), str(wav)], check=True)
     mp3.unlink(missing_ok=True)
     dur = _ffprobe_duration(wav)
     # edge gives timings for the spoken tokens; map them back onto our words so

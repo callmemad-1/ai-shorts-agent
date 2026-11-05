@@ -562,12 +562,12 @@ def loudnorm_linear(src: Path, dst: Path) -> Path:
     level like an automatic volume control, turning hiss up in every pause."""
     import json as _json
 
-    probe = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(src), "-af", f"{LOUDNORM}:print_format=json", "-f", "null", "-"],
+    probe = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-i", str(src), "-af", f"{LOUDNORM}:print_format=json", "-f", "null", "-"],
                            capture_output=True, text=True).stderr
     m = _json.loads(probe[probe.rindex("{"): probe.rindex("}") + 1])
     af = (f"{LOUDNORM}:linear=true:measured_I={m['input_i']}:measured_TP={m['input_tp']}:"
           f"measured_LRA={m['input_lra']}:measured_thresh={m['input_thresh']}:offset={m['target_offset']}")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-af", af, "-ar", "48000", str(dst)], check=True)
+    subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", str(src), "-af", af, "-ar", "48000", str(dst)], check=True)
     return dst
 
 
@@ -587,7 +587,7 @@ def render_video(cfg: dict, script: dict, tts: dict, out_mp4: Path, workers: int
     concat = work / "list.txt"
     concat.write_text("".join(f"file '{Path(f).name}'\n" for f in files))
     video_only = work / "video.mp4"
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat), "-c", "copy", str(video_only)], check=True)
+    subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(concat), "-c", "copy", str(video_only)], check=True)
 
     voice = loudnorm_linear(build_voice_track(tts, durs, work / "voice_raw.wav"), work / "voice.wav")
     music = resolve(cfg["video"].get("music_file", "")) if cfg["video"].get("music_file") else None

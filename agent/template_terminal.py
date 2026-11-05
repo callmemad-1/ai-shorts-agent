@@ -223,20 +223,30 @@ class TerminalRenderer(SceneRenderer):
 
         if st in ("hook", "point", "outro"):
             vis = os_.get("visual") if st == "point" and isinstance(os_.get("visual"), dict) else None
-            maxs = {"hook": 104, "point": 76 if vis else 88, "outro": 96}[st]
-            fh, lines = fit_mono(os_.get("headline", "").upper(), True, maxs, 52, CW, 2 if vis else 4)
+            room = vis or (st != "outro" and (scene.get("image") or {}).get("path"))
+            maxs = {"hook": 76 if room else 104, "point": 76 if room else 88, "outro": 96}[st]
+            fh, lines = fit_mono(os_.get("headline", "").upper(), True, maxs, 52, CW, 2 if room else 4)
             cps = max(sum(map(len, lines)) / 0.9, 26)
             for ln in lines:
                 t = self._typed(items, glow_text(ln, fh, k["accent"]), X0 - GLOW_PAD, y - GLOW_PAD, ln, fh.getlength("M"), t, cps, GLOW_PAD)
                 y += int(fh.size * 1.16)
-            y += 28 if vis else 36
+            y += 28 if room else 36
             if os_.get("sub"):
-                fs, sl = fit_mono("> " + os_["sub"], False, 40 if vis else 46, 32, CW, 2 if vis else 3)
+                fs, sl = fit_mono("> " + os_["sub"], False, 40 if room else 46, 32, CW, 2 if room else 3)
                 for ln in sl:
                     t = self._typed(items, text_img(ln, fs, (*k["text"], 255)), X0, y, ln, fs.getlength("M"), t + 0.05, 70)
                     y += int(fs.size * 1.4)
             if vis:
                 L["visual"] = self._build_visual(vis, y + 22, t + 0.15, items)
+            elif st != "outro" and (scene.get("image") or {}).get("path"):
+                from .template_tutorial import load_cover
+
+                h = min(500, 1130 - (y + 22) - 50)
+                w = min(CW, int(h * 1.6))
+                cover = load_cover(scene["image"]["path"], w, h - 40) if h >= 220 else None
+                if cover is not None:
+                    L["image"] = {"cover": cover, "x": X0, "y": y + 22, "w": w, "h": h - 40, "t0": t + 0.15,
+                                  "credit": scene["image"].get("credit", "")}
             if st == "outro":
                 L["follow_at"] = (y + 30, t + 0.15)
 
@@ -278,6 +288,20 @@ class TerminalRenderer(SceneRenderer):
         cursor_at = None
         if L.get("visual"):  # first, so card backgrounds sit under the typed text
             self._draw_visual(fr, L["visual"], t, out)
+        if L.get("image") and t >= L["image"]["t0"]:  # a little image.png window
+            from .template_tutorial import kenburns
+
+            I = L["image"]
+            pp = prog(t, I["t0"], 0.35)
+            photo = kenburns(I["cover"], I["w"], I["h"], (t - I["t0"]) / max(dur - I["t0"], 0.1))
+            win = Image.new("RGBA", (I["w"] + 8, I["h"] + 84), (*k["frame"], 255))
+            wd = ImageDraw.Draw(win)
+            for i, c in enumerate(TRAFFIC):
+                wd.ellipse((16 + i * 26, 12, 32 + i * 26, 28), fill=(*c, 255))
+            wd.text((I["w"] / 2, 20), "image.png", font=mono(24), fill=(*k["muted"], 255), anchor="mm")
+            win.paste(photo, (4, 40))
+            wd.text((14, I["h"] + 62), "// " + I["credit"], font=mono(22), fill=(*k["muted"], 255), anchor="lm")
+            put(fr, win, I["x"] - 4, I["y"] + (1 - pp) * 20, out * pp)
         for it in L["items"]:
             if t < it["start"]:
                 break

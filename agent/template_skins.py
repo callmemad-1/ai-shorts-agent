@@ -117,6 +117,16 @@ class NewsRenderer(TutorialRenderer):
         d.rectangle((0, y0, lw, y1), fill=(*self.RED, 255))
         d.text((24, (y0 + y1) / 2), lab, font=fl, fill=(255, 255, 255, 255), anchor="lm")
 
+    def _frame_image(self, photo: Image.Image, credit: str) -> Image.Image:
+        """News: photo in a thin white frame with a red caption bar."""
+        bar = 46
+        card = Image.new("RGBA", (photo.width + 8, photo.height + 8 + bar), (255, 255, 255, 255))
+        card.paste(photo, (4, 4))
+        d = ImageDraw.Draw(card)
+        d.rectangle((0, photo.height + 8, card.width, card.height), fill=(*self.RED, 255))
+        d.text((16, photo.height + 8 + bar / 2), credit.upper(), font=self.font("note_bold", 26), fill=(255, 255, 255, 255), anchor="lm")
+        return card
+
     def _follow(self, fr: Image.Image, y: float, start: float, t: float, out: float):
         pp = prog(t, start, 0.3)
         if pp <= 0:
@@ -192,6 +202,15 @@ class EditorialRenderer(TutorialRenderer):
         d.line([(0, 25), (48, 25)], fill=(*self.acc, 255), width=4)
         d.text((64, 25), spaced, font=f, fill=(*self.acc, 255), anchor="lm")
         return im
+
+    def _frame_image(self, photo: Image.Image, credit: str) -> Image.Image:
+        """Editorial: the photo with a hairline border and an italic caption below."""
+        card = Image.new("RGBA", (photo.width, photo.height + 52), (0, 0, 0, 0))
+        card.paste(photo, (0, 0))
+        d = ImageDraw.Draw(card)
+        d.rectangle((0, 0, photo.width - 1, photo.height - 1), outline=(*self.p["ink"], 255), width=1)
+        d.text((0, photo.height + 30), credit, font=self.font("note", 28), fill=(*self.p["soft"], 255), anchor="lm")
+        return card
 
     def _follow(self, fr: Image.Image, y: float, start: float, t: float, out: float):
         pp = prog(t, start, 0.3)
@@ -293,6 +312,8 @@ class ChatRenderer(TutorialRenderer):
                 pop(im, t); y += im.height + 22; t += 0.5
             if vis:
                 L["visual"] = self._build_visual(vis, y + 20, t, items)
+            if st != "outro":
+                self._attach_image(L, scene, y + 20, t)
             if st == "outro":
                 L["follow_at"] = (y + 20, t)
         elif st == "stat":
@@ -319,6 +340,15 @@ class ChatRenderer(TutorialRenderer):
                 d.line([(60, 52), (70, 62), (86, 42)], fill=(255, 255, 255, 255), width=6, joint="curve")
                 pop(im, t); y += im.height + 18; t += 0.8
         return L
+
+    def _frame_image(self, photo: Image.Image, credit: str) -> Image.Image:
+        """Chat: the photo sent as an image message, rounded, credit underneath."""
+        card = Image.new("RGBA", (photo.width, photo.height + 44), (0, 0, 0, 0))
+        mask = Image.new("L", photo.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle((0, 0, photo.width - 1, photo.height - 1), radius=34, fill=255)
+        card.paste(photo, (0, 0), mask)
+        ImageDraw.Draw(card).text((10, photo.height + 24), credit, font=self.font("note", 24), fill=(*self.p["soft"], 255), anchor="lm")
+        return card
 
     def draw_scene(self, fr: Image.Image, L: dict, t: float, dur: float):
         ty, t0, t1 = L.get("typing", (0, 0, 0))

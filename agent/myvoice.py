@@ -14,6 +14,7 @@ You can also record elsewhere (phone, QuickTime) and drop the files into
 from __future__ import annotations
 
 import difflib
+import os
 import json
 import re
 import subprocess
@@ -36,7 +37,8 @@ def _norm(w: str) -> str:
 # soft consonants), less boxiness, more presence and air, de-esser, compressor for an even
 # level. No noise gate: on these takes it chopped word endings, which sounds like the voice
 # sticking. tts.voice_enhance = false keeps just the rumble filter and fades.
-ENHANCE = ("adeclick=w=10:o=75:t=2,anlmdn=s=0.0002:p=0.002:r=0.006,"
+ENHANCE_DENOISE = "anlmdn=s=0.0002:p=0.002:r=0.006"
+ENHANCE = ("adeclick=w=10:o=75:t=2," + ENHANCE_DENOISE + ","
            "equalizer=f=250:t=q:w=1:g=-2,equalizer=f=3500:t=q:w=1.2:g=4,highshelf=f=9000:g=4,"
            "deesser=i=0.35,acompressor=threshold=0.08:ratio=3:attack=8:release=120:makeup=2,")
 
@@ -48,9 +50,20 @@ def _clean(src: Path, dst: Path, enhance: bool = True) -> None:
     import numpy as np
     import soundfile as sf
 
-    af = f"highpass=f=80{',' + ENHANCE.rstrip(',') if enhance else ''}"
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(src), "-af", af, "-ac", "1", "-ar", str(SR),
-                    "-c:a", "pcm_f32le", str(dst)], check=True)
+    chains = [f"highpass=f=80{',' + ENHANCE.rstrip(',') if enhance else ''}"]
+    if enhance:
+        # ffmpeg 9.0.2's anlmdn crashes (SIGSEGV) on takes longer than ~10 s: fall back to the
+        # FFT hiss remover (tested not to chop words), then to the plain rumble filter
+        chains += [chains[0].replace(ENHANCE_DENOISE, "afftdn=nr=12:nf=-62:tn=1"), "highpass=f=80"]
+    for i, af in enumerate(chains):
+        p = subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", str(src), "-af", af, "-ac", "1", "-ar", str(SR),
+                            "-c:a", "pcm_f32le", str(dst)], capture_output=True, text=True)
+        if p.returncode == 0:
+            if i:
+                log(f"Voice cleanup: ffmpeg crashed on the full chain, used fallback {i} for {src.name}")
+            break
+    else:
+        raise RuntimeError(f"ffmpeg could not process {src.name}: {p.stderr[-300:]}")
     x, sr = sf.read(str(dst), dtype="float32")
     if x.ndim > 1:
         x = x.mean(1)
@@ -154,7 +167,7 @@ def align(text: str, wav: Path, duration: float):
         import numpy as np
 
         # decode with ffmpeg rather than faster-whisper's PyAV path (breaks across PyAV versions)
-        pcm = subprocess.run(["ffmpeg", "-v", "error", "-i", str(wav), "-f", "f32le", "-ac", "1", "-ar", "16000", "-"],
+        pcm = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(wav), "-f", "f32le", "-ac", "1", "-ar", "16000", "-"],
                              capture_output=True, check=True).stdout
         audio = np.frombuffer(pcm, dtype=np.float32)
         segs, _ = _whisper().transcribe(audio, language="en", word_timestamps=True, beam_size=5,
@@ -183,9 +196,55 @@ def align(text: str, wav: Path, duration: float):
             e = nxt if nxt is not None else est[i]["end"]
             times[i] = (s, max(e, s + 0.12))
         out.append({"word": w, "start": round(times[i][0], 3), "end": round(times[i][1], 3)})
-    matched = sum(blk.size for blk in sm.get_matching_blocks())
+    # Whisper writes "five point three percent" as "5.3%": when it heard digits, spelled-out
+    # number words count as heard rather than flagging a misread
+    if any(ch.isdigit() for w in heard for ch in w.word):
+        from .scriptwriter import NUMBER_WORDS
+        nums = set(NUMBER_WORDS) | {"point", "one"}
+        hit |= {i for i, w in enumerate(a) if w in nums}
+    matched = len(hit)
     missing = [script_words[i].strip(".,!?:;\"“”") for i in range(len(script_words)) if i not in hit]
-    return out, matched / max(len(a), 1), " ".join(w.word.strip() for w in heard), missing
+    return out, min(1.0, matched / max(len(a), 1)), " ".join(w.word.strip() for w in heard), missing
+
+
+def _loudest_db(wav: Path) -> float:
+    import numpy as np
+    import soundfile as sf
+
+    x, sr = sf.read(str(wav), dtype="float32")
+    if x.ndim > 1:
+        x = x.mean(1)
+    w = max(1, int(sr * 0.02))
+    if len(x) < w:
+        return -120.0
+    r = np.sqrt(np.mean(x[: len(x) // w * w].reshape(-1, w) ** 2, 1))
+    return float(20 * np.log10(r.max() + 1e-9))
+
+
+def trim_to_line(wav: Path, words: list[dict], ratio: float, dur: float):
+    """Cut anything said before the line's first word or after its last (reading the
+    tone note aloud, a false start, "okay..."), using Whisper's word times. Only when the
+    line was clearly recognised, so a mumbled take is never cut into real speech."""
+    import numpy as np
+    import soundfile as sf
+
+    if not words or ratio < 0.7:
+        return words, dur
+    head = max(0.0, words[0]["start"] - 0.15)
+    tail = min(dur, words[-1]["end"] + 0.3)
+    if head < 0.6 and dur - tail < 0.8:
+        return words, dur
+    x, sr = sf.read(str(wav), dtype="float32")
+    x = x[int(head * sr): int(tail * sr)].copy()
+    fi, fo = min(len(x), int(sr * 0.015)), min(len(x), int(sr * 0.04))
+    x[:fi] *= np.linspace(0, 1, fi)
+    x[len(x) - fo:] *= np.linspace(1, 0, fo)
+    x = np.concatenate([x, np.zeros(int(sr * 0.12), dtype="float32")])
+    sf.write(str(wav), x, sr, subtype="PCM_24")
+    if head >= 0.6:
+        log(f"Trimmed {head:.1f}s before the line in {wav.name} (extra words or a false start)")
+    shifted = [{**w, "start": round(w["start"] - head, 3), "end": round(w["end"] - head, 3)} for w in words]
+    return shifted, len(x) / sr
 
 
 # ---------------------------------------------------------------- pace
@@ -260,11 +319,11 @@ def record_all(script: dict, cfg: dict, outdir: Path, reuse_takes: bool = False)
         wav = outdir / f"scene_{sid:02d}.wav"
         print(f"── {n}/{len(scenes)} · {s['type'].upper()} " + "─" * 40)
         if s.get("tone"):
-            print(f"   Tone: {s['tone']}")
+            print(f"   (don't read) Tone: {s['tone']}")
         say = [x for x in script.get("pronounce", []) if x.get("word") and x["word"].lower() in text.lower()]
         if say:
-            print("   Say: " + " · ".join(f"{x['word']} = {x['say']}" for x in say))
-        print(f"   “{format_read(s['read']) if s.get('read') else text}”")
+            print("   (don't read) Say it like: " + " · ".join(f"{x['word']} = {x['say']}" for x in say))
+        print(f"\n   READ THIS ▶  “{format_read(s['read']) if s.get('read') else text}”")
         if n == len(scenes) and s.get("end"):
             print(f"   How to end: {s['end']}")
         print()
@@ -274,6 +333,7 @@ def record_all(script: dict, cfg: dict, outdir: Path, reuse_takes: bool = False)
             _clean(src, wav, enhance)
             dur = _duration(wav)
             words, ratio, _, missing = align(text, wav, dur)
+            words, dur = trim_to_line(wav, words, ratio, dur)
             print(f"   reused {src.name} · {dur:.1f}s · {ratio:.0%} of words matched")
             clips.append({"scene_id": sid, "wav": str(wav), "duration": round(dur, 3), "words": words})
             continue
@@ -286,12 +346,18 @@ def record_all(script: dict, cfg: dict, outdir: Path, reuse_takes: bool = False)
                 else:
                     continue
             else:
-                take = mine / f"scene_{sid:02d}.wav"
+                take = mine / f"scene_{sid:02d}.new.wav"  # the kept take is only replaced on "keep"
                 if not _record(take, device):
                     continue
             _clean(take, wav, enhance)
             dur = _duration(wav)
+            if _loudest_db(wav) < -40:
+                print("   ✗ No voice detected in that take. Is the Lark transmitter on and not muted? Let's record it again.")
+                take.unlink(missing_ok=True) if take.name.endswith(".new.wav") else None
+                reuse = False
+                continue
             words, ratio, heard, missing = align(text, wav, dur)
+            words, dur = trim_to_line(wav, words, ratio, dur)
             if ratio < MATCH_WARN:
                 print(f"   ⚠ That may differ from the fact-checked line ({ratio:.0%} of words matched).\n"
                       f"     Not heard: {', '.join(missing)}\n"
@@ -303,8 +369,12 @@ def record_all(script: dict, cfg: dict, outdir: Path, reuse_takes: bool = False)
                 ans = input("   Enter = keep · r = redo · p = play again: ").strip().lower()
             if ans == "r":
                 continue
-            if ratio < MATCH_WARN and input("   Use it anyway? Captions will show the script's words. [y/N] ").strip().lower() != "y":
+            if ratio < MATCH_WARN and input("   Keep it anyway? y = keep · Enter = record again: ").strip().lower() != "y":
                 continue
+            if take.name.endswith(".new.wav"):  # promote the new take over any older one
+                final = mine / f"scene_{sid:02d}.wav"
+                os.replace(take, final)
+                take = final
             meta[str(sid)] = {"text": text, "file": take.name}
             meta_path.write_text(json.dumps(meta, indent=1))
             clips.append({"scene_id": sid, "wav": str(wav), "duration": round(dur, 3), "words": words})

@@ -254,6 +254,31 @@ def draw_teacher(fr: Image.Image, x: int, y: int, mood: str, mouth: float, blink
         d.text((bx + 35, by + 37), "?", font=f, fill=(*acc, 255), anchor="mm")
 
 
+# ------------------------------------------------------------------ photos
+def load_cover(path: str, w: int, h: int, over: float = 1.12) -> Image.Image | None:
+    """The photo scaled to cover a w x h box with room to zoom (Ken Burns)."""
+    try:
+        im = Image.open(path).convert("RGB")
+    except Exception:  # noqa: BLE001 - a missing or broken file just means no photo
+        return None
+    s = max(w * over / im.width, h * over / im.height)
+    return im.resize((max(1, int(im.width * s)), max(1, int(im.height * s))), Image.LANCZOS)
+
+
+def kenburns(cover: Image.Image, w: int, h: int, p: float) -> Image.Image:
+    """A slow push-in: p 0..1 over the scene, zoom 1.0 -> 1.08, drifting slightly up."""
+    p = max(0.0, min(1.0, p))
+    z = 1.0 + 0.08 * p
+    cw = cover.width / z / 1.06  # the cover has 12% spare; start just inside it
+    ch = cw * h / w
+    if ch > cover.height:
+        ch = cover.height
+        cw = ch * w / h
+    x0 = (cover.width - cw) / 2
+    y0 = (cover.height - ch) / 2 * (1 - 0.3 * p)
+    return cover.crop((int(x0), int(y0), int(x0 + cw), int(y0 + ch))).resize((w, h), Image.BILINEAR)
+
+
 class TutorialRenderer(SceneRenderer):
     # --- the skin: other templates (template_skins.py) override these ---
     FACES = FACES
@@ -279,6 +304,50 @@ class TutorialRenderer(SceneRenderer):
             size -= 4
         f = self.font(kind, min_size)
         return f, wrap(text, f, max_w)
+
+    def _attach_image(self, L: dict, scene: dict, y: int, t0: float):
+        im = scene.get("image") or {}
+        path = im.get("path", "")
+        if not path or not Path(path).exists():
+            return
+        V = L.get("visual")
+        if V and V.get("kind") == "whois":  # a real photo instead of the cartoon avatar
+            V["photo"] = load_cover(path, 150, 150, 1.0)
+            return
+        if V:
+            return
+        if self.TEACHER:  # beside the teacher: the page is free to its bottom on the right
+            x, bottom, max_w = 360, 1110, X1 - 360
+        else:
+            x, bottom, max_w = X0, self.CONTENT_BOTTOM - 60, CW
+        h = min(520, bottom - y)
+        if h < 180:
+            return
+        w = min(max_w, int(h * 1.6))
+        h = min(h, int(w / 1.3))
+        cover = load_cover(path, w, h)
+        if cover is not None:
+            L["image"] = {"cover": cover, "x": x, "y": y, "w": w, "h": h, "t0": t0, "credit": im.get("credit", "")}
+
+    def _frame_image(self, photo: Image.Image, credit: str) -> Image.Image:
+        """Tutorial: a Polaroid taped onto the page, credit written on the white strip."""
+        pad, foot = 18, 64
+        card = Image.new("RGBA", (photo.width + pad * 2, photo.height + pad + foot), (255, 255, 255, 255))
+        card.paste(photo, (pad, pad))
+        d = ImageDraw.Draw(card)
+        d.rectangle((0, 0, card.width - 1, card.height - 1), outline=(220, 220, 220, 255), width=2)
+        d.text((pad + 4, photo.height + pad + foot / 2), credit, font=self.font("note", 26), fill=(*self.p["soft"], 255), anchor="lm")
+        tape = Image.new("RGBA", (160, 44), (255, 236, 150, 190))
+        card.alpha_composite(tape.rotate(4, expand=True), (card.width // 2 - 80, 0))
+        return card.rotate(-1.5, resample=Image.BICUBIC, expand=True)
+
+    def _draw_image(self, fr: Image.Image, I: dict, t: float, dur: float, out: float):
+        if t < I["t0"]:
+            return
+        pp = prog(t, I["t0"], 0.4)
+        photo = kenburns(I["cover"], I["w"], I["h"], (t - I["t0"]) / max(dur - I["t0"], 0.1))
+        framed = self._frame_image(photo, I["credit"])
+        put(fr, framed, I["x"] - 12, I["y"] + (1 - pp) * 30, out * pp)
 
     def _kicker_img(self, text: str) -> Image.Image:
         return text_img(text, self.font("note_bold", 34), (*self.acc, 255))
@@ -443,9 +512,10 @@ class TutorialRenderer(SceneRenderer):
             y += im.height + 22
 
         vis = os_.get("visual") if isinstance(os_.get("visual"), dict) else None
+        room = vis or (scene.get("image") or {}).get("path")  # a graphic or photo needs space below
         if st in ("hook", "point", "outro"):
-            maxs = {"hook": 104, "point": 84 if vis else 96, "outro": 96}[st]
-            fh, lines = self.fit(os_.get("headline", ""), "marker", maxs, 56, CW, 2 if vis else 3)
+            maxs = {"hook": 84 if room else 104, "point": 84 if room else 96, "outro": 96}[st]
+            fh, lines = self.fit(os_.get("headline", ""), "marker", maxs, 56, CW, 2 if room else 3)
             for i, ln in enumerate(lines):
                 im = text_img(ln, fh, (*ink, 255))
                 if i == len(lines) - 1:  # highlighter stroke (or underline) under the last line
@@ -454,13 +524,17 @@ class TutorialRenderer(SceneRenderer):
                 y += int(fh.size * 1.12)
             y += 26
             if os_.get("sub"):
-                fs, sl = self.fit(os_["sub"], "note", 46 if not vis else 40, 32, CW, 2)
+                fs, sl = self.fit(os_["sub"], "note", 46 if not room else 40, 32, CW, 2)
                 for ln in sl:
                     t = self._write(items, text_img(ln, fs, (*p["soft"], 255)), X0, y, t + 0.05, max(0.2, len(ln) / 45))
                     y += int(fs.size * 1.35)
             if vis:
                 L["visual"] = self._build_visual(vis, y + 26, t + 0.15, items)
                 L["point_at"] = t + 0.15
+            if st != "outro":
+                self._attach_image(L, scene, y + 26, t + 0.15)
+                if L.get("image"):
+                    L["point_at"] = t + 0.15
             if st == "outro":
                 L["follow_at"] = (y + 30, t + 0.2)
 
@@ -645,7 +719,15 @@ class TutorialRenderer(SceneRenderer):
             pp = prog(t, t0, 0.4)
             self._tint(fr, (X0, y, X1, y + 200), acc, int(36 * out * pp), 24)
             d.rounded_rectangle((X0, y, X1, y + 200), radius=24, outline=(*ink, int(a * pp)), width=4)
-            put(fr, icon_img("person", 150, ink, acc), X0 + 22, y + 26, out * pp)
+            if V.get("photo") is not None:  # real photo, cropped round
+                ph = V["photo"].crop((0, 0, 150, 150))
+                mask = Image.new("L", (150, 150), 0)
+                ImageDraw.Draw(mask).ellipse((0, 0, 149, 149), fill=255)
+                disc = Image.new("RGBA", (150, 150), (0, 0, 0, 0))
+                disc.paste(ph, (0, 0), mask)
+                put(fr, disc, X0 + 22, y + 26, out * pp)
+            else:
+                put(fr, icon_img("person", 150, ink, acc), X0 + 22, y + 26, out * pp)
             f1, f2 = self.font("marker", 54), self.font("note", 36)
             d.text((X0 + 200, y + 62), V["name"], font=f1, fill=(*ink, int(a * pp)), anchor="lm")
             d.text((X0 + 200, y + 128), ", ".join(x for x in (V["role"], V["org"]) if x), font=f2, fill=(*p["soft"], int(a * pp)), anchor="lm")
@@ -676,6 +758,8 @@ class TutorialRenderer(SceneRenderer):
                 self._panel(fr, m, prog(t, m["start"], 0.25) * out)
         if L.get("visual"):
             self._draw_visual(fr, L["visual"], t, out)
+        if L.get("image"):
+            self._draw_image(fr, L["image"], t, dur, out)
         for it in L["items"]:
             if t < it["start"]:
                 break
