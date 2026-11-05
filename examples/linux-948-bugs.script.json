@@ -1,0 +1,96 @@
+{
+  "title": "AI found 948 Linux root bugs",
+  "youtube_title": "OpenAI's AI found 948 Linux root exploits in one run",
+  "description": "OpenAI says an automated AI pipeline found 948 distinct Linux kernel privilege-escalation flaws in a single run, for about $1.2M in API credits. Caveats: local access required, human-reviewed, most fixes still in the reporting pipeline.\n\nSources:\nhttps://openai.com/index/a-thousand-fewer-paths-to-root/\nhttps://www.unite.ai/openai-pipeline-finds-948-linux-kernel-privilege-escalation-flaws/\nhttps://interestingengineering.com/ai-robotics/openai-agents-linux-kernel-vulnerabilities-exploits\nhttps://dev.to/yehechuhai/948-linux-root-exploits-in-one-run-what-openais-kernel-pipeline-actually-proves-and-what-it-47a",
+  "hashtags": ["#AI", "#OpenAI", "#Linux", "#Cybersecurity", "#AInews", "#Shorts"],
+  "date_label": "NOV 05, 2026",
+  "story_title": "OpenAI's AI pipeline finds 948 Linux kernel privilege-escalation flaws in one run",
+  "scenes": [
+    {
+      "id": 1,
+      "type": "hook",
+      "voiceover": "OpenAI says its AI just found nine hundred forty-eight ways to get root access on Linux. In a single run.",
+      "on_screen": {"headline": "AI found 948 Linux root bugs", "sub": "In one automated run"},
+      "claim_ids": ["c1"]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "voiceover": "Its agents scanned about two point eight million lines of the Linux kernel. That's roughly seven percent of it.",
+      "on_screen": {"stat": "2.8M", "sub": "lines of kernel code scanned"},
+      "claim_ids": ["c2"]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "voiceover": "In twelve hours they flagged over two thousand possible bugs, then rebuilt one thousand seven hundred twenty-four in test machines to prove they were real.",
+      "on_screen": {"stat": "1,724", "sub": "bugs reproduced in test VMs"},
+      "claim_ids": ["c3"]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "voiceover": "The bill? About one point two million dollars in API credits. Roughly twelve hundred seventy-nine dollars per unique flaw.",
+      "on_screen": {"stat": "$1,279", "sub": "API cost per unique flaw"},
+      "claim_ids": ["c4"]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "voiceover": "Back in July, an earlier model found one hundred sixty-six, for less than half the cost.",
+      "on_screen": {"stat": "166→948", "sub": "July run vs. October run"},
+      "claim_ids": ["c5"]
+    },
+    {
+      "id": 6,
+      "type": "verify",
+      "voiceover": "Before you panic: these need local access to a machine, humans reviewed the findings before reporting, and only sixty-one were patched upstream when the scan ended.",
+      "on_screen": {"bullets": ["Needs local access", "Human-reviewed before reporting", "Only 61 patched at scan end"]},
+      "claim_ids": ["c6", "c7"]
+    },
+    {
+      "id": 7,
+      "type": "outro",
+      "voiceover": "Finding bugs just got cheap. Fixing them is the new bottleneck. Follow for daily AI news, fact-checked.",
+      "on_screen": {"headline": "Fixing is the new bottleneck"},
+      "claim_ids": ["c6"]
+    }
+  ],
+  "sources": [
+    {"url": "https://openai.com/index/a-thousand-fewer-paths-to-root/", "publisher": "OpenAI"},
+    {"url": "https://www.unite.ai/openai-pipeline-finds-948-linux-kernel-privilege-escalation-flaws/", "publisher": "Unite.AI"},
+    {"url": "https://interestingengineering.com/ai-robotics/openai-agents-linux-kernel-vulnerabilities-exploits", "publisher": "Interesting Engineering"},
+    {"url": "https://dev.to/yehechuhai/948-linux-root-exploits-in-one-run-what-openais-kernel-pipeline-actually-proves-and-what-it-47a", "publisher": "DEV Community"}
+  ],
+  "claims": [
+    {"id": "c1", "verdict": "corrected", "final_wording": "OpenAI says its AI pipeline found 948 distinct Linux kernel local privilege-escalation (root) vulnerabilities in a single run in mid-October 2026, published Nov 4.",
+     "evidence": [
+       {"url": "https://www.unite.ai/openai-pipeline-finds-948-linux-kernel-privilege-escalation-flaws/", "publisher": "Unite.AI", "supports": "948 unique LPE vulnerabilities; reported Nov 4; run in mid-October"},
+       {"url": "https://interestingengineering.com/ai-robotics/openai-agents-linux-kernel-vulnerabilities-exploits", "publisher": "Interesting Engineering", "supports": "948 distinct LPE vulnerabilities after variant analysis"}],
+     "note": "Self-reported by OpenAI; attribute on air."},
+    {"id": "c2", "verdict": "verified", "final_wording": "The agents audited about 2.8 million lines, roughly 7% of the Linux kernel.",
+     "evidence": [
+       {"url": "https://www.unite.ai/openai-pipeline-finds-948-linux-kernel-privilege-escalation-flaws/", "publisher": "Unite.AI", "supports": "5,034 targets, ~2.8M lines, ~7% of kernel"},
+       {"url": "https://interestingengineering.com/ai-robotics/openai-agents-linux-kernel-vulnerabilities-exploits", "publisher": "Interesting Engineering", "supports": "~2.8M lines, ~7% of codebase"}]},
+    {"id": "c3", "verdict": "verified", "final_wording": "Analysts produced 2,308 candidate findings in 12 hours; 1,724 were reproduced in isolated virtual machines.",
+     "evidence": [
+       {"url": "https://www.unite.ai/openai-pipeline-finds-948-linux-kernel-privilege-escalation-flaws/", "publisher": "Unite.AI", "supports": "2,308 candidates in 12h; 1,724 reproduced"},
+       {"url": "https://interestingengineering.com/ai-robotics/openai-agents-linux-kernel-vulnerabilities-exploits", "publisher": "Interesting Engineering", "supports": "1,724 validated by reproduction in isolated VMs"}]},
+    {"id": "c4", "verdict": "verified", "final_wording": "The run cost about $1.21 million in API credits, roughly $1,279 per unique vulnerability (an upper bound).",
+     "evidence": [
+       {"url": "https://www.unite.ai/openai-pipeline-finds-948-linux-kernel-privilege-escalation-flaws/", "publisher": "Unite.AI", "supports": "~$1.213M; ~$1,279 per unique LPE; upper bounds"},
+       {"url": "https://interestingengineering.com/ai-robotics/openai-agents-linux-kernel-vulnerabilities-exploits", "publisher": "Interesting Engineering", "supports": "$1.21M; ~$1,279 per LPE"}]},
+    {"id": "c5", "verdict": "verified", "final_wording": "A July 2026 run with an earlier model found 166 unique LPE vulnerabilities for $513,690.",
+     "evidence": [
+       {"url": "https://www.unite.ai/openai-pipeline-finds-948-linux-kernel-privilege-escalation-flaws/", "publisher": "Unite.AI", "supports": "late-July run, 166 unique LPEs at $513,690"},
+       {"url": "https://interestingengineering.com/ai-robotics/openai-agents-linux-kernel-vulnerabilities-exploits", "publisher": "Interesting Engineering", "supports": "July run cost $513,690, found 166"}]},
+    {"id": "c6", "verdict": "verified", "final_wording": "At the end of the scan 61 were patched upstream and 43 had staging patches; the rest were still being reported.",
+     "evidence": [
+       {"url": "https://www.unite.ai/openai-pipeline-finds-948-linux-kernel-privilege-escalation-flaws/", "publisher": "Unite.AI", "supports": "61 patched upstream, 43 staging, 299 reported/discussed"},
+       {"url": "https://dev.to/yehechuhai/948-linux-root-exploits-in-one-run-what-openais-kernel-pipeline-actually-proves-and-what-it-47a", "publisher": "DEV Community", "supports": "61 patched upstream, 43 staging"}]},
+    {"id": "c7", "verdict": "verified", "final_wording": "The flaws are local privilege escalations (attacker needs local access), and human researchers reviewed findings before reporting.",
+     "evidence": [
+       {"url": "https://interestingengineering.com/ai-robotics/openai-agents-linux-kernel-vulnerabilities-exploits", "publisher": "Interesting Engineering", "supports": "human researchers reviewed before reporting; LPE"},
+       {"url": "https://dev.to/yehechuhai/948-linux-root-exploits-in-one-run-what-openais-kernel-pipeline-actually-proves-and-what-it-47a", "publisher": "DEV Community", "supports": "LPE requires local account; human review before reporting"}]}
+  ]
+}

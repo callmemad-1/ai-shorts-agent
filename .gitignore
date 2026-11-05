@@ -1,0 +1,17 @@
+# secrets - never commit
+.env
+
+# installed packages (recreate with: pip install -r requirements.txt)
+.venv/
+__pycache__/
+*.pyc
+
+# generated videos, voices, briefings and run history
+outputs/
+
+# offline voice model (~330 MB, downloaded by setup_offline_voice.py)
+assets/tts/
+assets/music.mp3
+
+# macOS
+.DS_Store

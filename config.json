@@ -1,0 +1,92 @@
+{
+  "models": {
+    "research": "claude-sonnet-5-5",
+    "factcheck": "claude-sonnet-5-5",
+    "script": "claude-sonnet-5-5"
+  },
+  "web_search_tool": "web_search_20260318",
+  "research": {
+    "window_hours": 36,
+    "candidate_stories": 8,
+    "max_searches": 12,
+    "stories_to_factcheck": 3,
+    "fact_check_max_searches": 10,
+    "avoid_repeat_days": 14,
+    "blocked_domains": [],
+    "aggregator_domains": [
+      "techmeme.com",
+      "killtheai.com",
+      "aiweekly.co",
+      "theneuron.ai",
+      "ecosistemastartup.com",
+      "stocktwits.com",
+      "mediagazer.com"
+    ],
+    "interactive_factcheck": 8,
+    "factcheck_workers": 4
+  },
+  "script": {
+    "target_seconds": 55,
+    "min_seconds": 50,
+    "max_seconds": 60,
+    "words_min": 115,
+    "words_max": 140
+  },
+  "tts": {
+    "engine": "edge",
+    "fallback_engine": "kokoro",
+    "edge_voice": "en-US-AndrewNeural",
+    "kokoro_voice": "am_michael",
+    "kokoro_model": "assets/tts/kokoro-v1.0.onnx",
+    "kokoro_voices": "assets/tts/voices-v1.0.bin",
+    "scene_gap_seconds": 0.25,
+    "mic_device": "Wireless Microphone",
+    "voice_enhance": true
+  },
+  "video": {
+    "width": 1080,
+    "height": 1920,
+    "template": "terminal",
+    "theme": "auto",
+    "theme_by_category": {
+      "launch": "green",
+      "product": "green",
+      "policy": "amber",
+      "research": "cyan",
+      "security": "red",
+      "business": "purple",
+      "debate": "amber"
+    },
+    "fps": 30,
+    "crf": 20,
+    "music_file": "assets/music.mp3",
+    "music_volume": 0.1,
+    "glitch_cuts": false
+  },
+  "brand": {
+    "name": "TechorumAI News",
+    "handle": "@TechorumAI News",
+    "tagline": "Daily AI news · fact-checked",
+    "colors": {
+      "bg_top": "#0B1026",
+      "bg_bottom": "#04050C",
+      "glow_1": "#3B5BFF",
+      "glow_2": "#00D1B2",
+      "accent": "#5CF2C8",
+      "accent_2": "#8B9CFF",
+      "text": "#FFFFFF",
+      "muted": "#A9B1D6",
+      "verified": "#3DDC84",
+      "warning": "#FFC857"
+    },
+    "terminal_colors": {
+      "bg": "#030703",
+      "red": "#FF5F56"
+    }
+  },
+  "llm": {
+    "backend": "api",
+    "claude_code_path": "",
+    "max_turns": 40
+  }
+}

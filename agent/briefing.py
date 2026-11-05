@@ -1,0 +1,203 @@
+"""Interactive mode: research -> fact-check every story -> briefing + recommendation
+-> you choose -> script, voiceover and video for each story you picked.
+
+    python main.py --interactive
+
+Today's briefing is saved, so running it again the same day can skip straight to
+choosing without paying for research and fact-checking twice.
+"""
+from __future__ import annotations
+
+import datetime as dt
+import json
+import re
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+from . import factcheck, prompts, render, research, scriptwriter, tts
+from .llm import Claude
+from .utils import add_history, log, read_json, save_json, topic_slug
+
+LINE = "─" * 72
+
+
+def factcheck_all(claude: Claude, cfg: dict, res: dict, today: dt.date) -> list[dict]:
+    stories = res["stories"][: cfg["research"].get("interactive_factcheck", len(res["stories"]))]
+    log(f"Fact-checking all {len(stories)} stories in parallel...")
+    with ThreadPoolExecutor(max_workers=cfg["research"].get("factcheck_workers", 4)) as ex:
+        return list(ex.map(lambda s: factcheck.check_story(claude, cfg, s, today), stories))
+
+
+def recommend(claude: Claude, cfg: dict, stories: list[dict], checks: list[dict]) -> dict:
+    brief = []
+    for st, fc in zip(stories, checks):
+        brief.append({
+            "story_id": st["id"], "title": st["title"], "category": st.get("category"),
+            "scores": st.get("scores"), "why_it_matters": st.get("why_it_matters"),
+            "publishable": fc["publishable"], "fact_check_reason": fc.get("reason"),
+            "usable_facts": [c["final_wording"] for c in fc["usable_claims"]],
+            "caveats": fc.get("caveats", []),
+        })
+    log("Asking the producer for a recommendation...")
+    rec, _ = claude.ask_json(cfg["models"]["factcheck"], prompts.RECOMMEND_SYSTEM,
+                             prompts.RECOMMEND_USER.format(stories=json.dumps(brief, indent=1)), search=False)
+    ok = {st["id"] for st, fc in zip(stories, checks) if fc["publishable"]}
+    rec["recommended"] = [i for i in rec.get("recommended", []) if i in ok]
+    return rec
+
+
+def _publishers(fc: dict, aggregators: list[str]) -> list[str]:
+    pubs = []
+    for c in fc["usable_claims"]:
+        for e in c.get("evidence", []):
+            if any(a in e.get("url", "") for a in aggregators):
+                continue
+            p = (e.get("publisher") or "").strip()
+            if p and p not in pubs:
+                pubs.append(p)
+    return pubs
+
+
+BADGE = {"make": "  ★ MAKE THIS", "maybe": "  ? MAYBE", "skip": "  ✗ SKIP"}
+
+
+def picks_for(b: dict) -> list[str]:
+    """Producer's 'make' stories in its preferred order (falls back to its first pick)."""
+    notes = {n["story_id"]: n for n in b["recommendation"].get("notes", [])}
+    rec = b["recommendation"]["recommended"]
+    return [i for i in rec if notes.get(i, {}).get("verdict") == "make"] or rec[:1]
+
+
+def briefing_text(b: dict, full: bool, aggregators: list[str]) -> str:
+    notes = {n["story_id"]: n for n in b["recommendation"].get("notes", [])}
+    out = [f"# AI news briefing · {b['date']}", ""]
+    for i, (st, fc) in enumerate(zip(b["stories"], b["checks"]), 1):
+        n = notes.get(st["id"], {})
+        star = BADGE.get(n.get("verdict", ""), "") if fc["publishable"] else "  ✗ FAILED FACT-CHECK"
+        status = "PASSED" if fc["publishable"] else "FAILED"
+        out.append(f"## {i}. {st['title']}{star}")
+        out.append(f"{st.get('category', '?')} · fact-check {status} · {len(fc['usable_claims'])} verified facts"
+                   f" · hook {st.get('scores', {}).get('hook', '?')}/10 · impact {st.get('scores', {}).get('significance', '?')}/10")
+        if n:
+            out.append(f"Producer: {n.get('verdict', '').upper()} — {n.get('why', '')}")
+            if fc["publishable"] and n.get("angle"):
+                out.append(f"Angle: {n['angle']}")
+        if not fc["publishable"]:
+            out.append(f"Why it failed: {fc.get('reason', '')}")
+        facts = [c["final_wording"] for c in fc["usable_claims"]]
+        for f in facts if full else facts[:3]:
+            out.append(f"  ✓ {f}")
+        for c in (fc.get("caveats") or [])[: None if full else 2]:
+            out.append(f"  ! {c}")
+        pubs = _publishers(fc, aggregators)
+        if pubs:
+            out.append("  Sources: " + " · ".join(pubs[: None if full else 4]))
+        if full:
+            for c in fc["usable_claims"]:
+                for e in c.get("evidence", []):
+                    if not any(a in e.get("url", "") for a in aggregators):
+                        out.append(f"    - {e.get('publisher', '')}: {e.get('url', '')}")
+        out.append("")
+    return "\n".join(out)
+
+
+def build(claude: Claude, cfg: dict, today: dt.date, out: Path, from_research: str | None) -> dict:
+    path = out / "briefing.json"
+    if path.exists() and not from_research:
+        b = read_json(path)
+        ans = input(f"Today's briefing already exists ({len(b['stories'])} stories). Reuse it? [Y/n] ").strip().lower()
+        if ans not in ("n", "no"):  # anything but a clear "no" reuses it (research costs money)
+            return b
+    if from_research:
+        res = read_json(Path(from_research))
+    else:
+        res = research.run(claude, cfg, today)
+        save_json(res, out / "research.json")
+    if not res["stories"]:
+        raise SystemExit("Research found no stories today.")
+    checks = factcheck_all(claude, cfg, res, today)
+    stories = res["stories"][: len(checks)]
+    b = {"date": today.isoformat(), "stories": stories, "checks": checks,
+         "recommendation": recommend(claude, cfg, stories, checks)}
+    save_json(b, path)
+    return b
+
+
+def ask_choice(b: dict) -> list[int]:
+    ids = [s["id"] for s in b["stories"]]
+    rec = [ids.index(i) + 1 for i in picks_for(b)]
+    ok = [i for i, fc in enumerate(b["checks"], 1) if fc["publishable"]]
+    if not ok:
+        print("No story passed fact-check today, so there is nothing safe to publish.")
+        return []
+    default = rec or ok[:1]
+    print(f"\nProducer's pick: {', '.join(map(str, default))} (press Enter to make {'these' if len(default) > 1 else 'it'}).")
+    while True:
+        ans = input("Which stories should I turn into Shorts? Numbers like 1,3 · Enter = producer's pick"
+                    " · all · q = quit: ").strip().lower()
+        if ans in ("q", "quit"):
+            return []
+        if ans == "":
+            return default
+        if ans == "all":
+            return ok
+        picks = [int(x) for x in re.findall(r"\d+", ans)]
+        bad = [p for p in picks if p not in ok]
+        if picks and not bad:
+            return list(dict.fromkeys(picks))
+        if bad:
+            print(f"Story {', '.join(map(str, bad))} didn't pass fact-check, so it can't be made. Pick from {ok}.")
+
+
+def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, today: dt.date) -> Path:
+    from main import write_script_md  # keeps one copy of the script.md writer
+
+    folder.mkdir(parents=True, exist_ok=True)
+    save_json({"story": story, "factcheck": fc}, folder / "factcheck.json")
+    script = scriptwriter.run(claude, cfg, {"story": story, "factcheck": fc})
+    script["date_label"] = today.strftime("%b %d, %Y").upper()
+    save_json(script, folder / "script.json")
+    write_script_md(script, fc, folder / "script.md")
+    voice = tts.synthesize(script, cfg, folder / "voice")
+    save_json(voice, folder / "voice" / "timings.json")
+    mp4 = render.render_video(cfg, script, voice, folder / "short.mp4")
+    render.render_still(cfg, script, voice, 0, 2.5, folder / "cover.png")
+    add_history(script.get("story_title", ""), [s["url"] for s in script.get("sources", [])], today)
+    return mp4
+
+
+def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, brain: str | None = None) -> int:
+    from .llm import ask_brain, make_claude
+
+    brain = brain or ask_brain(cfg)
+    if brain == "subscription":  # parallel Claude Code sessions eat plan limits fast
+        cfg["research"]["factcheck_workers"] = min(cfg["research"].get("factcheck_workers", 4), 2)
+    claude = make_claude(cfg, brain)
+    b = build(claude, cfg, today, out, from_research)
+    agg = cfg["research"].get("aggregator_domains", [])
+    (out / "briefing.md").write_text(briefing_text(b, True, agg), encoding="utf-8")
+    print("\n" + LINE + "\n" + briefing_text(b, False, agg) + LINE)
+    print(f"Full briefing with every fact and link: {out / 'briefing.md'}")
+    picks = ask_choice(b)
+    if picks:
+        mine = cfg["tts"]["engine"] == "mine"
+        ans = input(f"Voiceover: record your own voice? [{'Y/n' if mine else 'y/N'}] ").strip().lower()
+        if ans in ("y", "yes") or (ans == "" and mine):
+            cfg["tts"]["engine"] = "mine"
+        elif cfg["tts"]["engine"] == "mine":
+            cfg["tts"]["engine"] = cfg["tts"].get("fallback_engine") or "edge"
+            if cfg["tts"]["engine"] == "kokoro":
+                cfg["tts"]["engine"] = "edge"
+    if picks:
+        cfg["video"]["template"] = render.ask_template(cfg, b["stories"][picks[0] - 1].get("category", ""))
+    made = []
+    for n in picks:
+        st, fc = b["stories"][n - 1], b["checks"][n - 1]
+        log(f"Making Short {n}: {st['title']}")
+        try:
+            made.append(generate(claude, cfg, st, fc, out / topic_slug(st["title"]), today))
+        except Exception as e:  # one bad story shouldn't stop the others
+            log(f"Short {n} failed: {e}")
+    for m in made:
+        print(f"  ✓ {m}")
+    return 0 if made or not picks else 1

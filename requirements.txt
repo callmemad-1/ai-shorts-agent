@@ -1,0 +1,11 @@
+anthropic>=0.60
+edge-tts>=7.0
+pillow>=10.0
+numpy>=1.24
+soundfile>=0.12
+# optional offline voice (python setup_offline_voice.py downloads the model)
+kokoro-onnx>=0.4
+# word timings when you record your own voiceover (--tts mine)
+faster-whisper>=1.0
+# recording your own voiceover through CoreAudio (--tts mine)
+sounddevice>=0.4
