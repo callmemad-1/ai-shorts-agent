@@ -132,7 +132,7 @@ Story arc (every script follows it):
 5. Reality check - the honest caveat beat (type "verify") so viewers trust the channel.
 6. Outro - a payoff line that answers the hook's open loop, ideally echoing the hook's
    words so the video loops cleanly back into its first line, then
-   "Follow for daily AI news, fact-checked."
+   "Follow for daily AI news."
 
 Retention:
 - One idea per scene. If a scene needs two ideas, split it.
