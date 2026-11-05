@@ -38,7 +38,13 @@ SOURCES_Y = 1430
 DEFAULT_KICKER = {"hook": "TODAY IN AI", "stat": "BY THE NUMBERS", "point": "WHAT HAPPENED", "setup": "WHAT HAPPENED",
                   "twist": "THE TWIST", "example": "THINK OF IT LIKE", "stakes": "WHY IT MATTERS", "verify": "REALITY CHECK"}
 # story-arc beats that share a layout
-LAYOUT = {"setup": "point", "twist": "point", "example": "point", "stakes": "point"}
+LAYOUT = {"setup": "point", "twist": "point", "step": "point", "example": "point", "stakes": "point"}
+
+
+def step_number(script: dict, scene: dict) -> int:
+    """1-based position of a "step" scene among the script's steps (explainer pattern)."""
+    steps = [s.get("id") for s in script.get("scenes", []) if s.get("type") == "step"]
+    return steps.index(scene.get("id")) + 1 if scene.get("id") in steps else 1
 
 
 # ------------------------------------------------------------------ helpers
@@ -294,7 +300,8 @@ class SceneRenderer:
         st = LAYOUT.get(beat, beat)
         os_ = scene.get("on_screen", {}) or {}
         L = {"type": st, "kicker": None, "lines": [], "sub": [], "stat": None, "bullets": []}
-        kick = os_.get("label") or (self.cfg["brand"]["tagline"] if st == "outro" else DEFAULT_KICKER.get(beat))
+        kick = os_.get("label") or (self.cfg["brand"]["tagline"] if st == "outro" else
+                                    f"STEP {step_number(self.script, scene)}" if beat == "step" else DEFAULT_KICKER.get(beat))
         if kick:
             L["kicker"] = self._kicker(kick)
         white = (*self.c["text"], 255)

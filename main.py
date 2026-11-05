@@ -80,6 +80,7 @@ def main() -> int:
     ap.add_argument("--reuse-takes", action="store_true", help="with --tts mine: re-process your kept recordings, no prompts")
     ap.add_argument("--template", choices=["tutorial", "terminal", "news", "editorial", "chat", "classic"], default=None, help="video look for this run")
     ap.add_argument("--brain", choices=["api", "subscription"], default=None, help="who researches and writes: API key or your Claude subscription")
+    ap.add_argument("--pattern", choices=["story", "explainer"], default=None, help="script pattern (skips the question)")
     ap.add_argument("--no-images", action="store_true", help="don't offer to add real photos")
     ap.add_argument("--out", default=None, help="output folder (default outputs/YYYY-MM-DD/<topic>)")
     args = ap.parse_args()
@@ -141,6 +142,7 @@ def main() -> int:
 
         if not args.template and args.stop_after not in ("script", "tts"):
             cfg["video"]["template"] = render.ask_template(cfg, chk["chosen"]["story"].get("category", ""))
+        cfg["script"]["pattern"] = args.pattern or scriptwriter.ask_pattern(cfg, chk["chosen"]["story"].get("category", ""))
         from agent.myvoice import fit_script_to_pace
 
         fit_script_to_pace(cfg)

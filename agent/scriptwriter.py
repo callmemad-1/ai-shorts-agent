@@ -10,7 +10,7 @@ from .utils import log
 
 # story arc: hook -> setup -> twist/stat beats (any mix) -> stakes -> verify -> outro
 ARC_ORDER = {"hook": 0, "setup": 1, "twist": 2, "stat": 2, "example": 2, "stakes": 3, "verify": 4, "outro": 5}
-HEADLINE_WORDS = {"hook": 5, "setup": 5, "twist": 5, "example": 5, "stakes": 5, "outro": 4}
+HEADLINE_WORDS = {"hook": 5, "setup": 5, "twist": 5, "step": 5, "example": 5, "stakes": 5, "outro": 4}
 HOOK_MAX_WORDS = 12  # first spoken sentence, about 2.5 s
 CLICKBAIT = re.compile(r"\b(shocking|insane|unbelievable|you won'?t believe|mind[- ]blowing|game[- ]changer)\b", re.I)
 
@@ -29,8 +29,8 @@ def check_visual(scene: dict, facts: str) -> list[str]:
     if not v:
         return []
     sid, f = scene.get("id"), _norm(facts)
-    if scene.get("type") not in ("setup", "twist", "example", "stakes"):
-        return [f"Scene {sid}: visuals are only allowed on setup, twist, example and stakes scenes."]
+    if scene.get("type") not in ("setup", "twist", "step", "example", "stakes"):
+        return [f"Scene {sid}: visuals are only allowed on setup, twist, step, example and stakes scenes."]
     kind = v.get("kind") if isinstance(v, dict) else None
     if kind not in ("bars", "grid", "diff", "whois", "flow", "icons"):
         return [f"Scene {sid}: unknown visual kind {kind!r}."]
@@ -141,6 +141,47 @@ def check_delivery(scenes: list[dict]) -> list[str]:
     return problems
 
 
+EXPLAINER_ORDER = {"hook": 0, "step": 1, "example": 1, "stat": 1, "verify": 2, "outro": 3}
+AI_FILLER = re.compile(r"\b(in today's fast[- ]paced world|let's dive in|dive into|delve|game[- ]changer|landscape|"
+                       r"it's important to note|in conclusion|buckle up|revolutioni[sz]e|unprecedented|the future is here)\b", re.I)
+
+
+def check_structure(types: list[str], pattern: str) -> list[str]:
+    """Each pattern has its own scene types and order."""
+    problems = []
+    if pattern == "explainer":
+        unknown = sorted({t for t in types if t not in EXPLAINER_ORDER})
+        if unknown:
+            problems.append(f"Unknown scene types {unknown} for the explainer; use {list(EXPLAINER_ORDER)}.")
+        if not 2 <= types.count("step") <= 4:
+            problems.append(f"Need 2-4 'step' scenes, found {types.count('step')}.")
+        for t in ("example", "verify"):
+            if types.count(t) != 1:
+                problems.append(f"Need exactly one '{t}' scene, found {types.count(t)}.")
+        if types.count("stat") > 1:
+            problems.append(f"At most 1 'stat' scene in the explainer, found {types.count('stat')}.")
+        ranks = [EXPLAINER_ORDER[t] for t in types if t in EXPLAINER_ORDER]
+        if ranks != sorted(ranks):
+            problems.append("Scenes out of explainer order: hook (question), steps/example/stat, verify, outro.")
+        return problems
+    unknown = sorted({t for t in types if t not in ARC_ORDER})
+    if unknown:
+        problems.append(f"Unknown scene types {unknown}; use {list(ARC_ORDER)}.")
+    for t in ("setup", "stakes", "verify"):
+        if types.count(t) != 1:
+            problems.append(f"Need exactly one '{t}' scene, found {types.count(t)}.")
+    if not 1 <= types.count("twist") <= 2:
+        problems.append(f"Need 1-2 'twist' scenes, found {types.count('twist')}.")
+    if types.count("stat") > 2:
+        problems.append(f"At most 2 'stat' scenes, found {types.count('stat')}.")
+    if types.count("example") != 1:
+        problems.append(f"Need exactly one 'example' scene (an everyday comparison), found {types.count('example')}.")
+    ranks = [ARC_ORDER[t] for t in types if t in ARC_ORDER]
+    if ranks != sorted(ranks):
+        problems.append("Scenes out of story-arc order: hook, setup, twist/stat/example, stakes, verify, outro.")
+    return problems
+
+
 def validate(script: dict, usable_ids: set[str], cfg: dict, facts: str = "") -> list[str]:
     """Code-level checks that don't depend on the model's judgement."""
     problems = []
@@ -154,26 +195,13 @@ def validate(script: dict, usable_ids: set[str], cfg: dict, facts: str = "") -> 
     if scenes and scenes[-1].get("type") != "outro":
         problems.append("Last scene must be type 'outro'.")
     types = [s.get("type") for s in scenes]
-    unknown = sorted({t for t in types if t not in ARC_ORDER})
-    if unknown:
-        problems.append(f"Unknown scene types {unknown}; use {list(ARC_ORDER)}.")
-    for t in ("setup", "stakes", "verify"):
-        if types.count(t) != 1:
-            problems.append(f"Need exactly one '{t}' scene, found {types.count(t)}.")
-    if not 1 <= types.count("twist") <= 2:
-        problems.append(f"Need 1-2 'twist' scenes, found {types.count('twist')}.")
-    if types.count("stat") > 2:
-        problems.append(f"At most 2 'stat' scenes, found {types.count('stat')}.")
-    if types.count("example") != 1:
-        problems.append(f"Need exactly one 'example' scene (an everyday comparison), found {types.count('example')}.")
+    pattern = script.get("pattern", "story")
+    problems += check_structure(types, pattern)
     problems += check_delivery(scenes)
     problems += check_speakability(scenes, cfg["script"].get("max_spoken_numbers", 3))
     for s in scenes:
         if s.get("type") == "verify" and not 2 <= len((s.get("on_screen") or {}).get("bullets") or []) <= 3:
             problems.append(f"Scene {s.get('id')}: the reality check needs 2-3 bullets (the screen shows at most 3).")
-    ranks = [ARC_ORDER[t] for t in types if t in ARC_ORDER]
-    if ranks != sorted(ranks):
-        problems.append("Scenes out of story-arc order: hook, setup, twist/stat/example, stakes, verify, outro.")
     for s in scenes:
         if s.get("type") == "outro":
             continue
@@ -184,7 +212,12 @@ def validate(script: dict, usable_ids: set[str], cfg: dict, facts: str = "") -> 
         if bad:
             problems.append(f"Scene {s.get('id')} uses unverified claims {bad}.")
     for s in scenes:
+        fill = AI_FILLER.search(s.get("voiceover", ""))
+        if fill:
+            problems.append(f"Scene {s.get('id')} uses AI-sounding filler {fill.group(0)!r}; say it like a person would.")
         limit = HEADLINE_WORDS.get(s.get("type"))
+        if s.get("type") == "hook" and script.get("pattern") == "explainer":
+            limit = 6
         head = (s.get("on_screen") or {}).get("headline", "")
         if limit and len(head.split()) > limit:
             problems.append(f"Scene {s.get('id')} headline {head!r} is {len(head.split())} words; max {limit}.")
@@ -213,6 +246,7 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
     caveats_txt = "\n".join(f"- {c}" for c in fc.get("caveats", [])) or "- (none)"
     sc = cfg["script"]
     model = cfg["models"]["script"]
+    pattern = sc.get("pattern", "story") if sc.get("pattern", "story") in prompts.PATTERNS else "story"
 
     user = prompts.SCRIPT_USER.format(
         words_min=sc["words_min"],
@@ -221,9 +255,11 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
         title=story["title"],
         claims=claims_txt,
         caveats=caveats_txt,
+        pattern=prompts.PATTERNS[pattern]["rules"],
     )
-    log("Writing script...")
+    log(f"Writing script ({pattern} pattern)...")
     script, _ = claude.ask_json(model, prompts.SCRIPT_SYSTEM, user, search=False)
+    script["pattern"] = pattern
 
     for round_ in range(3):
         issues = [{"problem": p} for p in validate(script, usable_ids, cfg, claims_txt + "\n" + caveats_txt)]
@@ -249,9 +285,11 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
         script, _ = claude.ask_json(
             model,
             prompts.SCRIPT_SYSTEM,
-            prompts.REVISE_USER.format(issues=json.dumps(issues, indent=1), script=json.dumps(script, indent=1)),
+            prompts.REVISE_USER.format(issues=json.dumps(issues, indent=1), script=json.dumps(script, indent=1))
+            + "\n\nThe pattern to follow:\n" + prompts.PATTERNS[pattern]["rules"],
             search=False,
         )
+        script["pattern"] = pattern
     else:
         remaining = validate(script, usable_ids, cfg, claims_txt + "\n" + caveats_txt)
         if any("unverified" in p or "not in the fact-checked" in p for p in remaining):
@@ -272,5 +310,66 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
     script["pronounce"] = [x for x in script.get("pronounce", []) if isinstance(x, dict) and str(x.get("word", "")).lower() in said]
     script["story_title"] = story["title"]
     script["category"] = story.get("category", "")
+    attach_scene_sources(script, usable, cfg)
+    for sc in script.get("scenes", []):  # the template already shows "STEP n": don't repeat it
+        os_ = sc.get("on_screen") or {}
+        if sc.get("type") == "step" and os_.get("headline"):
+            os_["headline"] = re.sub(r"^\s*step\s*\d+\s*[:.\-–]\s*", "", os_["headline"], flags=re.I)
     script["claims"] = usable
     return script
+
+
+def _outlet(name: str) -> str:
+    """'Reuters via Yahoo Finance' -> 'Reuters'; 'SEC EDGAR (Apple 10-K ...)' -> 'SEC EDGAR'."""
+    name = re.split(r"\s+(?:via|carried by|in a report)\b", name, flags=re.I)[0]
+    return re.sub(r"\s*\(.*?\)\s*", " ", name).strip(" ,;-")
+
+
+def attach_scene_sources(script: dict, usable: list[dict], cfg: dict) -> None:
+    """scene["source"] = the outlets behind THAT scene's facts, best first (primary, then
+    major outlets), max 2, aggregators never. Shown on screen so viewers see where each
+    fact comes from, not just one sources line at the end."""
+    agg = cfg["research"].get("aggregator_domains", [])
+    by_id = {c["id"]: c for c in usable}
+    rank = {"P": 0, "M": 1}
+    for sc in script.get("scenes", []):
+        names = []
+        for cid in sc.get("claim_ids") or []:
+            for e in sorted((by_id.get(cid) or {}).get("evidence", []), key=lambda e: rank.get(e.get("tier"), 2)):
+                if any(a in e.get("url", "") for a in agg) or e.get("tier") not in ("P", "M"):
+                    continue
+                n = _outlet(e.get("publisher") or "")
+                if n and n not in names:
+                    names.append(n)
+        if names and sc.get("type") != "outro":
+            sc["source"] = " · ".join(names[:2])
+        else:
+            sc.pop("source", None)
+
+
+def ask_pattern(cfg: dict, category: str = "") -> str:
+    """Ask which script pattern to use, with one recommended for the story type. Enter
+    keeps script.pattern from config; scheduled runs use it without asking."""
+    import sys
+
+    default = cfg["script"].get("pattern", "story")
+    if not sys.stdin.isatty():
+        return default
+    rec = prompts.RECOMMENDED_PATTERN.get(category or "")
+    names = list(prompts.PATTERNS)
+    print("\nWhich script pattern?")
+    for i, n in enumerate(names, 1):
+        tags = [t for t, on in (("default", n == default), (f"recommended for {category} stories", n == rec)) if on]
+        print(f"  {i}. {prompts.PATTERNS[n]['name']}" + (f"   ({', '.join(tags)})" if tags else ""))
+    while True:
+        try:
+            ans = input(f"Pick 1-{len(names)} · Enter = {rec or default}: ").strip().lower()
+        except EOFError:
+            return rec or default
+        if not ans:
+            return rec or default
+        if ans.isdigit() and 1 <= int(ans) <= len(names):
+            return names[int(ans) - 1]
+        if ans in prompts.PATTERNS:
+            return ans
+        print("  Type a number from the list, or press Enter.")

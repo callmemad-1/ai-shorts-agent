@@ -211,7 +211,13 @@ class TerminalRenderer(SceneRenderer):
         items, y, t = L["items"], 360, 0.0
 
         # prompt line: "$ cat setup.log"
-        cmd = os_.get("label") or COMMANDS.get(beat, COMMANDS["point"])
+        from .render import step_number
+
+        cmd = os_.get("label") or (f"cat step_{step_number(self.script, scene)}.txt" if beat == "step"
+                                   else COMMANDS.get(beat, COMMANDS["point"]))
+        if scene.get("source") and st != "outro":  # the scene's source, typed in as a comment
+            src = text_img(f"# src: {scene['source']}", mono(24), (*k["muted"], 255))
+            self._typed(items, src, X1 + 30 - src.width, 312, f"# src: {scene['source']}", mono(24).getlength("M"), 0.05, 90)
         f = mono(36, True)
         prompt = Image.new("RGBA", (CW, 56), (0, 0, 0, 0))
         dollar = text_img("$ ", f, (*k["accent"], 255))

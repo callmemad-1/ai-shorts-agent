@@ -111,28 +111,7 @@ news as a short story. You may ONLY use the fact-checked claims you are given. N
 facts, numbers, names or predictions. Opinions/framing lines are fine if they assert no
 new facts.
 
-Story arc (every script follows it):
-1. Hook - the first spoken words ARE the hook: the most surprising verified fact, in a
-   first sentence of at most 12 words (under 2.5 seconds), followed by an open loop
-   (a catch, a contradiction or a question the video will answer). Pick one formula:
-   - fact + catch: "Google will let schools turn off its AI. But Search goes with it."
-   - number first: "Nine hundred forty-eight. That's how many root bugs one AI found."
-   - contradiction: "Finding the bugs cost twelve hundred dollars each. Fixing them is the problem."
-   - you-stakes: "If your kid's school uses Google, this changes next year."
-   - myth-bust: "You'll see headlines saying AI hacked Linux. That's not what happened."
-   Never open with a greeting, the channel name or "today we're talking about".
-2. Setup - who did what, and only the context needed to follow the twist. One or two
-   sentences; this is where viewers swipe away, so keep it tight.
-3. Twist - the turn in the story: the detail that makes it bigger, stranger or more
-   complicated than it first sounds.
-   Example - one everyday comparison that makes the hardest idea click for someone
-   who has never heard of it ("Think of it like a library that only lends books if
-   you also take the magazines."). It explains a verified fact; it never adds one.
-4. Stakes - why it matters to a normal person. Framing only, no new facts or forecasts.
-5. Reality check - the honest caveat beat (type "verify") so viewers trust the channel.
-6. Outro - a payoff line that answers the hook's open loop, ideally echoing the hook's
-   words so the video loops cleanly back into its first line, then
-   "Follow for daily AI news."
+Follow the PATTERN given with each request (its arc and its scene types).
 
 Retention:
 - One idea per scene. If a scene needs two ideas, split it.
@@ -156,8 +135,23 @@ Style - talk like you're explaining it to a friend over coffee:
 - The first time a company, product or person a non-expert wouldn't know comes up,
   say in a few words what it is, using only what the claims say ("Hut 8, which runs
   data centers"). If the claims don't say, don't guess: name it without a label.
-- Sound human: a quick reaction is fine ("Wild, right?") but at most once.
 - Never overstate.
+
+Sound like a real person telling a friend, not an AI reading the news:
+- Let honest feelings show where they fit the facts: curiosity ("Here's what got me."),
+  surprise ("Wait. It gets weirder."), concern ("And that's the part that worries
+  people."), relief, a little humour. 2-3 small reactions per script, never forced.
+- A reaction is a feeling, never information: it can't add or stretch a fact, and its
+  size must match the facts' real weight (no fake drama on a small story).
+- "I" only for a genuine reaction ("Honestly, I didn't see that coming."), never for a
+  claim or an opinion on who's right.
+- Vary the rhythm: a longer sentence, then a short one. Fragments are fine. ("No law.
+  Just fear.")
+- Never use AI-sounding filler: "in today's fast-paced world", "let's dive in", "dive
+  into", "delve", "game-changer", "landscape", "it's important to note", "in conclusion",
+  "buckle up", "revolutionize", "unprecedented", "the future is here".
+- On political stories, stay even: the feeling is about the facts ("that's a big
+  swing"), never about a party or person.
 - Keep attribution when a claim is self-reported ("OpenAI says").
 - Never name aggregator or roundup sites as a source on air or on screen; attribute
   to the company, the primary source or the established outlet.
@@ -182,27 +176,9 @@ Fact-checked claims (use only these, by id):
 Caveats you may use:
 {caveats}
 
-Scenes: 6-8 scenes in story-arc order. Each scene is 1-2 short sentences of voiceover.
-Scene types:
-- "hook": first scene. on_screen.headline (max 5 words), on_screen.sub (max 7 words)
-- "setup": exactly one, right after the hook. on_screen.headline (max 5 words),
-  on_screen.sub (max 8 words)
-- "twist": 1-2 scenes. on_screen.headline (max 5 words), on_screen.sub (max 8 words)
-- "stat": 0-2 scenes, anywhere between setup and stakes, for a number that lands
-  harder on its own. on_screen.stat (max 9 characters, e.g. "948", "$1.2M", "2.8M",
-  "166→948"), on_screen.sub (max 6 words)
-- "example": exactly one, between setup and stakes: the everyday comparison that makes
-  the story's hardest idea click (e.g. "Think of data centers like the power plants of
-  AI: no plant, no power."). on_screen.headline (max 5 words, e.g. "Like AI's power
-  plants"), on_screen.sub (max 8 words).
-- "stakes": exactly one, after the twist. on_screen.headline (max 5 words),
-  on_screen.sub (max 8 words)
-- "verify": exactly one, the reality check after stakes. on_screen.bullets: 2-3
-  bullets, max 5 words each
-- "outro": last scene. on_screen.headline (max 4 words) is the payoff line, never
-  the follow call-to-action (the template adds the follow button)
+{pattern}
 
-Animated graphics: "setup", "twist", "example" and "stakes" scenes may add
+Animated graphics: "setup", "twist", "step", "example" and "stakes" scenes may add
 on_screen.visual. Use 2-3 per script, where a picture beats words; the "example" scene
 should almost always get "icons", and a cause-and-effect chain deserves a "flow": a story that changes rules or a
 product almost always deserves a "diff"; a quoted person deserves a "whois" (and the
@@ -270,7 +246,9 @@ that overstates them (e.g. drops "says", turns "up to" into a certainty, adds a
 superlative, says something is live when it is only announced).
 Also flag: a title or youtube_title that promises more than the claims support or uses
 clickbait wording, and any aggregator or roundup site named as a source.
-Framing lines with no factual content are fine, and so is an everyday comparison
+Framing lines with no factual content are fine, and so are short emotional reactions
+("Wait. It gets weirder.", "Honestly, that surprised me.") as long as they add no fact,
+take no side and don't make the story sound bigger than the facts. So is an everyday comparison
 that is clearly a comparison ("think of it like...") as long as it adds no new fact
 about the story. Use scene_id 0 for title issues."""
 
@@ -317,3 +295,87 @@ Return one ```json block:
      "angle": "the hook or twist you'd lead with, using only usable facts"}}]}}
 Give a note for every story.
 """
+
+
+# ---------------------------------------------------------------- script patterns
+PATTERNS = {
+    "story": {
+        "name": "Story arc - hook, setup, twist, why it matters, reality check",
+        "rules": """Story arc (every script follows it):
+1. Hook - the first spoken words ARE the hook: the most surprising verified fact, in a
+   first sentence of at most 12 words (under 2.5 seconds), followed by an open loop
+   (a catch, a contradiction or a question the video will answer). Pick one formula:
+   - fact + catch: "Google will let schools turn off its AI. But Search goes with it."
+   - number first: "Nine hundred forty-eight. That's how many root bugs one AI found."
+   - contradiction: "Finding the bugs cost twelve hundred dollars each. Fixing them is the problem."
+   - you-stakes: "If your kid's school uses Google, this changes next year."
+   - myth-bust: "You'll see headlines saying AI hacked Linux. That's not what happened."
+   Never open with a greeting, the channel name or "today we're talking about".
+2. Setup - who did what, and only the context needed to follow the twist. One or two
+   sentences; this is where viewers swipe away, so keep it tight.
+3. Twist - the turn in the story: the detail that makes it bigger, stranger or more
+   complicated than it first sounds.
+   Example - one everyday comparison that makes the hardest idea click for someone
+   who has never heard of it ("Think of it like a library that only lends books if
+   you also take the magazines."). It explains a verified fact; it never adds one.
+4. Stakes - why it matters to a normal person. Framing only, no new facts or forecasts.
+5. Reality check - the honest caveat beat (type "verify") so viewers trust the channel.
+6. Outro - a payoff line that answers the hook's open loop, ideally echoing the hook's
+   words so the video loops cleanly back into its first line, then
+   "Follow for daily AI news."
+
+Scenes: 6-8 scenes in story-arc order. Each scene is 1-2 short sentences of voiceover.
+Scene types:
+- "hook": first scene. on_screen.headline (max 5 words), on_screen.sub (max 7 words)
+- "setup": exactly one, right after the hook. on_screen.headline (max 5 words),
+  on_screen.sub (max 8 words)
+- "twist": 1-2 scenes. on_screen.headline (max 5 words), on_screen.sub (max 8 words)
+- "stat": 0-2 scenes, anywhere between setup and stakes, for a number that lands
+  harder on its own. on_screen.stat (max 9 characters, e.g. "948", "$1.2M", "2.8M",
+  "166→948"), on_screen.sub (max 6 words)
+- "example": exactly one, between setup and stakes: the everyday comparison that makes
+  the story's hardest idea click (e.g. "Think of data centers like the power plants of
+  AI: no plant, no power."). on_screen.headline (max 5 words, e.g. "Like AI's power
+  plants"), on_screen.sub (max 8 words).
+- "stakes": exactly one, after the twist. on_screen.headline (max 5 words),
+  on_screen.sub (max 8 words)
+- "verify": exactly one, the reality check after stakes. on_screen.bullets: 2-3
+  bullets, max 5 words each
+- "outro": last scene. on_screen.headline (max 4 words) is the payoff line, never
+  the follow call-to-action (the template adds the follow button)
+""",
+    },
+    "explainer": {
+        "name": "Explainer / Q&A - the viewer's question, answered step by step",
+        "rules": """Explainer / Q&A pattern (every script follows it):
+1. Hook - open with the QUESTION a curious viewer would ask, made concrete with the most
+   surprising verified fact ("Stocks went up. So why did AI's data-center companies go
+   down?"). The question lands within the first 12 words. No greeting.
+2. Steps - answer it in 2-4 steps, each one verified piece of the answer, in the order
+   that builds understanding. Say "First," / "Then," / "And here's the key part," -
+   the screen shows "STEP 1", "STEP 2"... Each step ends by pulling into the next.
+3. Example - one everyday comparison that makes the hardest step click. It explains a
+   verified fact; it never adds one.
+4. Stat - optional: the one number that proves the answer.
+5. Reality check - what we still don't know, or the honest caveat (type "verify").
+6. Outro - the answer in one plain sentence that echoes the hook's question, then
+   "Follow for daily AI news."
+
+Scenes: 6-8 scenes in this order. Each scene is 1-2 short sentences of voiceover.
+Scene types:
+- "hook": first scene. on_screen.headline = the question (max 6 words, ends with "?"),
+  on_screen.sub (max 7 words)
+- "step": 2-4 scenes, in answer order. on_screen.headline (max 5 words), on_screen.sub
+  (max 8 words)
+- "example": exactly one, after the first step. on_screen.headline (max 5 words),
+  on_screen.sub (max 8 words)
+- "stat": 0-1 scenes, among the steps. on_screen.stat (max 9 characters), on_screen.sub
+  (max 6 words)
+- "verify": exactly one, after the steps. on_screen.bullets: 2-3 bullets, max 5 words each
+- "outro": last scene. on_screen.headline (max 4 words) is the answer, never the follow
+  call-to-action""",
+    },
+}
+# which pattern fits which kind of story best
+RECOMMENDED_PATTERN = {"research": "explainer", "product": "explainer", "launch": "explainer", "policy": "explainer",
+                       "business": "story", "security": "story", "debate": "story"}

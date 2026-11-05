@@ -147,7 +147,8 @@
     "max_seconds": 60,
     "words_min": 115,
     "words_max": 140,
-    "max_spoken_numbers": 3
+    "max_spoken_numbers": 3,
+    "pattern": "story"
   },
   "tts": {
     "engine": "edge",

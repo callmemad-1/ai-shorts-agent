@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-from .render import CW, FONTS, LAYOUT, SceneRenderer, hex_rgb, numeric_parts, prog, put, text_img, wrap
+from .render import CW, FONTS, LAYOUT, SceneRenderer, hex_rgb, numeric_parts, prog, put, step_number, text_img, wrap
 
 SYS = Path("/System/Library/Fonts")
 FACES = {  # first that exists wins; Inter (bundled) keeps it working off macOS
@@ -387,6 +387,17 @@ class TutorialRenderer(SceneRenderer):
     def _kicker_img(self, text: str) -> Image.Image:
         return text_img(text, self.font("note_bold", 34), (*self.acc, 255))
 
+    def _source_chip(self, source: str) -> Image.Image | None:
+        """Small tag naming the scene's source: 'Source: Reuters'."""
+        f = self.font("note_bold", 24)
+        label = f"Source: {source}"
+        w = int(f.getlength(label)) + 28
+        im = Image.new("RGBA", (w, 40), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        d.rounded_rectangle((1, 1, w - 2, 38), radius=19, outline=(*self.p["soft"], 255), width=2, fill=(*self.p["paper"], 255))
+        d.text((w / 2, 20), label, font=f, fill=(*self.p["ink"], 255), anchor="mm")
+        return im
+
     def _headline_mark(self, L: dict, x: float, y: float, w: float, size: int, start: float):
         if self.HEADLINE_MARK == "highlight":
             L["marks"].append({"kind": "highlight", "x": x - 8, "y": y + size * .55, "w": w + 16, "h": size * .5, "start": start})
@@ -540,7 +551,11 @@ class TutorialRenderer(SceneRenderer):
              "follow_at": None, "mood": MOOD.get(beat, "neutral"), "point_at": None}
         items, y, t = L["items"], 300, 0.0
 
-        kick = self.KICKER.get(beat, "")
+        kick = f"STEP {step_number(self.script, scene)}" if beat == "step" and self.KICKER.get("hook") else self.KICKER.get(beat, "")
+        if scene.get("source") and st != "outro":  # where this scene's fact comes from, always visible
+            chip = self._source_chip(scene["source"])
+            if chip is not None:
+                self._write(items, chip, 1004 - chip.width, y + 2, 0.15, 0.25)
         if kick:
             im = self._kicker_img(kick)
             t = self._write(items, im, X0, y, 0.0, 0.3)

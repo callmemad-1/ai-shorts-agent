@@ -199,6 +199,7 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
                 cfg["tts"]["engine"] = "edge"
     if picks:
         cfg["video"]["template"] = render.ask_template(cfg, b["stories"][picks[0] - 1].get("category", ""))
+        cfg["script"]["pattern"] = scriptwriter.ask_pattern(cfg, b["stories"][picks[0] - 1].get("category", ""))
         want_photos = False
         if cfg.get("images", {}).get("enabled", True):
             try:

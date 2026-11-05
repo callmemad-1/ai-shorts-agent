@@ -101,6 +101,14 @@ class NewsRenderer(TutorialRenderer):
         d.text((20, 28), text, font=f, fill=(255, 255, 255, 255), anchor="lm")
         return im
 
+    def _source_chip(self, source: str) -> Image.Image | None:
+        f = self.font("note_bold", 26)
+        label = f"SOURCE: {source.upper()}"
+        w = int(f.getlength(label)) + 28
+        im = Image.new("RGBA", (w, 42), (255, 255, 255, 255))
+        ImageDraw.Draw(im).text((w / 2, 21), label, font=f, fill=(10, 22, 48, 255), anchor="mm")
+        return im
+
     def _overlay(self, fr: Image.Image, idx: int, t: float, gt: float):
         """Scrolling news ticker above the captions."""
         y0, y1 = 1170, 1232
@@ -198,6 +206,10 @@ class EditorialRenderer(TutorialRenderer):
         d.line([(X0 - 20, 226), (X1 + 30, 226)], fill=(*self.p["rule"], 255), width=2)
         done = (sum(self.durs[:idx]) + t) / max(sum(self.durs), 1e-6)
         d.line([(X0 - 20, 226), (X0 - 20 + (X1 + 50 - X0) * done, 226)], fill=(*self.acc, 255), width=4)
+
+    def _source_chip(self, source: str) -> Image.Image | None:
+        f = self.font("note", 28)
+        return text_img(f"Source: {source}", f, (*self.p["soft"], 255))
 
     def _kicker_img(self, text: str) -> Image.Image:
         f = self.font("note_bold", 30)
@@ -308,6 +320,15 @@ class ChatRenderer(TutorialRenderer):
 
         def pop(img, at):
             items.append({"img": img, "x": X0 - 30, "y": y, "start": at, "dur": 0, "mode": "pop"})
+
+        if scene.get("source") and st != "outro":
+            tag = text_img(f"via {scene['source']}", self.font("note", 26), (*p["soft"], 255))
+            items.append({"img": tag, "x": 1004 - tag.width, "y": 266, "start": 0.2, "dur": 0, "mode": "pop"})
+        if beat == "step":
+            from .render import step_number
+
+            badge = self._bubble([f"Step {step_number(self.script, scene)}"], self.font("marker", 34), white, acc)
+            pop(badge, t - 0.2); y += badge.height + 14
 
         if st in ("hook", "point", "outro"):
             f = self.font("marker", 58 if st == "hook" else 52)
