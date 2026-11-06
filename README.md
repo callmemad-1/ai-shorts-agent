@@ -97,7 +97,7 @@ Each topic folder contains:
 | `factcheck.json`, `script.json` | Full machine-readable trail for this story |
 | `voice/` | Per-scene audio + word timings (`voice/mine/` holds your own recordings) |
 | `images/` | The photos you approved, with their licence and credit in `script.json` |
-| `posts/` | `posts.md` (ready to paste), `posts.json`, `carousel_01.png`… (4:5 Instagram/LinkedIn slides) |
+| `posts/` | `posts.md` (ready to paste + YouTube upload settings), `captions.srt`, `posts.json`, `carousel_01.png`… (4:5 slides) |
 
 ## Run it daily on your computer
 
@@ -207,6 +207,12 @@ carousel in the Short's template, all in `posts/`. The same audit as the script
 checks them, and code checks lengths, sources, clickbait and aggregator names. The
 agent never posts anything: you copy from `posts.md` and post yourself. Redo them
 with `python -m agent.social outputs/<date>/<topic>/script.json`.
+
+`posts.md` also has a **YouTube Studio upload settings** table: every field in the
+upload form with the value to pick for that Short (audience, the altered-content
+answer for the voice used, tags, language, category, remixing, captions, visibility),
+and `posts/captions.srt` to upload under Subtitles (same words and timing as the
+burned-in captions, in the voiceover's language).
 
 ## Your cloned voice (no recording)
 

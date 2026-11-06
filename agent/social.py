@@ -32,7 +32,9 @@ Never name aggregator or digest sites; credit the original outlets.
 Per platform:
 - youtube: "title" (max 70 chars, key fact in the first 40), "description" (2-3 short
   sentences, then "Sources:" with one URL per line), "hashtags" (3-5, incl. #Shorts),
-  "pinned_comment" (one friendly question that invites replies, max 150 chars).
+  "pinned_comment" (one friendly question that invites replies, max 150 chars),
+  "tags" (8-15 plain search terms people would type, no "#", most specific first:
+  company, product, topic, then broader ones like "AI news"; under 400 characters total).
 - instagram: "caption" for the Reel - first line is a hook under 125 characters (it's
   all people see before "more"), then 3-5 short lines, then one line asking people to
   save or comment, then "Sources: <outlet names>". Max 1,000 characters. "hashtags":
@@ -55,7 +57,7 @@ Sources (outlet - URL):
 {sources}
 {credits}
 Return one ```json block:
-{{"youtube": {{"title": "...", "description": "...", "hashtags": ["#..."], "pinned_comment": "..."}},
+{{"youtube": {{"title": "...", "description": "...", "hashtags": ["#..."], "pinned_comment": "...", "tags": ["..."]}},
   "instagram": {{"caption": "...", "hashtags": ["#..."], "alt_text": "..."}},
   "linkedin": {{"post": "...", "hashtags": ["#..."]}}}}
 """
@@ -176,7 +178,91 @@ def carousel(cfg: dict, script: dict, voice: dict, out: Path, slides: int = 6) -
     return paths
 
 
-def markdown(posts: dict, slides: list[Path], synthetic_voice: bool = False) -> str:
+LANG_NAMES = {"en": "English", "ta": "Tamil"}
+
+
+def tags_for(posts: dict, cfg: dict) -> list[str]:
+    """YouTube tags: the model's search terms, else the hashtags; capped at YouTube's 500
+    characters (kept under 450 to be safe), duplicates and #Shorts removed."""
+    yt = posts.get("youtube", {})
+    raw = list(yt.get("tags") or []) + [h.lstrip("#") for h in yt.get("hashtags", [])]
+    raw += [cfg["brand"]["name"], "AI news"]
+    out, seen, size = [], set(), 0
+    for t in raw:
+        t = re.sub(r"\s+", " ", str(t)).strip().strip(",")
+        if not t or t.lower() in seen or t.lower() == "shorts":
+            continue
+        if size + len(t) + 1 > 450:
+            break
+        seen.add(t.lower())
+        out.append(t)
+        size += len(t) + 1
+    return out
+
+
+def srt(cfg: dict, voice: dict) -> str:
+    """Captions file for YouTube (Subtitles -> Upload file -> With timing): the same words
+    and the same chunks as the captions burned into the video."""
+    from .render import caption_chunks, scene_durations
+
+    def ts(x: float) -> str:
+        ms = int(round(max(0.0, x) * 1000))
+        return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
+
+    durs, cues, offset = scene_durations(cfg, voice), [], 0.0
+    for clip, d in zip(voice.get("clips", []), durs):
+        for ch in caption_chunks(clip.get("words", [])):
+            start, end = offset + ch[0]["start"], offset + max(ch[-1]["end"], ch[0]["start"] + 0.3)
+            cues.append((start, min(end, offset + d), " ".join(w["word"] for w in ch)))
+        offset += d
+    return "\n".join(f"{i}\n{ts(a)} --> {ts(b)}\n{t}\n" for i, (a, b, t) in enumerate(cues, 1))
+
+
+def upload_settings(cfg: dict, script: dict, posts: dict, voice: dict, captions: str | None) -> list[str]:
+    """Every field in YouTube Studio's upload form, with the value to pick for this Short."""
+    engine = voice.get("engine", "")
+    lang = LANG_NAMES.get(script.get("language", "en"), "English")
+    if engine == "clone":
+        altered = "**Yes** - the voiceover is your cloned (AI-generated) voice."
+        remix = "**Don't allow remixing** (others could reuse your cloned voice)"
+    elif engine == "mine":
+        altered = "**No** - your real recorded voice, real photos and graphics."
+        remix = "Allow only video remixing (keeps your voice yours)"
+    else:
+        altered = ("**No** for a generic AI narrator voice that isn't made to sound like a real person; "
+                   "choose Yes if you're unsure. Check YouTube's current rules.")
+        remix = "Allow video and audio remixing (more reach)"
+    tags = ", ".join(tags_for(posts, cfg))
+    rows = [
+        ("Title", "the title above"),
+        ("Description", "the description above (sources and image credits included)"),
+        ("Thumbnail", "Shorts: in the YouTube app, Edit -> Cover, pick the hook frame (about 2 s in)"),
+        ("Playlists", f"{cfg['brand']['name']} - Daily AI News"),
+        ("Audience", "**No, it's not made for kids**"),
+        ("Age restriction", "No"),
+        ("Paid promotion", "No (leave unticked)"),
+        ("Altered or synthetic content", altered),
+        ("Tags", f"`{tags}`"),
+        ("Language (video and title/description)", lang),
+        ("Caption certification", "This content has never aired on television in the U.S."),
+        ("Subtitles", f"Upload file -> With timing -> `{captions}` ({lang})" if captions else "Auto-generated is fine"),
+        ("Recording date", script.get("date_label", "").title() or "today"),
+        ("Video location", "Leave blank"),
+        ("License", "Standard YouTube License"),
+        ("Allow embedding", "Yes"),
+        ("Publish to subscriptions feed and notify subscribers", "Yes"),
+        ("Shorts remixing", remix),
+        ("Category", "Science & Technology"),
+        ("Comments", "On · Hold potentially inappropriate comments for review · Sort by Top"),
+        ("Show how many viewers like this video", "Yes"),
+        ("Visibility", "Public, or Schedule for your usual posting time"),
+        ("After publishing", "Post the pinned comment above, then pin it"),
+    ]
+    return ["### Upload settings (YouTube Studio)", "", "| Field | Value |", "|---|---|"] + [
+        f"| {k} | {v.replace('|', '/')} |" for k, v in rows] + [""]
+
+
+def markdown(posts: dict, slides: list[Path], synthetic_voice: bool = False, settings: list[str] | None = None) -> str:
     yt, ig, li = posts["youtube"], posts["instagram"], posts["linkedin"]
     out = ["# Social posts", "", "Review before posting. Nothing here has been posted.", ""]
     if synthetic_voice:
@@ -188,6 +274,7 @@ def markdown(posts: dict, slides: list[Path], synthetic_voice: bool = False) -> 
     out += ["## YouTube Shorts", "", "**Title**", "```", yt["title"], "```", "", "**Description**", "```",
             yt["description"] + "\n\n" + " ".join(yt.get("hashtags", [])), "```", "",
             "**Pinned comment** (post it yourself after uploading, then pin it)", "```", yt.get("pinned_comment", ""), "```", "",
+            *(settings or []),
             "## Instagram Reel", "", "Upload `short.mp4` as a Reel; `cover.png` as the cover.", "", "**Caption**", "```",
             ig["caption"] + "\n\n" + " ".join(ig.get("hashtags", [])), "```", "",
             "**Alt text** (Advanced settings → Accessibility)", "```", ig.get("alt_text", ""), "```", "",
@@ -222,7 +309,12 @@ def make(script_path: Path, cfg: dict, claude=None) -> Path:
         voice = json.loads(voice_p.read_text())
         slides = carousel(cfg, script, voice, out)
     (out / "posts.json").write_text(json.dumps(posts, indent=2, ensure_ascii=False))
-    (out / "posts.md").write_text(markdown(posts, slides, voice.get("engine") == "clone"), encoding="utf-8")
+    captions = None
+    if voice.get("clips"):
+        (out / "captions.srt").write_text(srt(cfg, voice), encoding="utf-8")
+        captions = "posts/captions.srt"
+    settings = upload_settings(cfg, script, posts, voice, captions)
+    (out / "posts.md").write_text(markdown(posts, slides, voice.get("engine") == "clone", settings), encoding="utf-8")
     log(f"Social pack ready: {out / 'posts.md'} (+ {len(slides)} carousel slides)")
     return out
 

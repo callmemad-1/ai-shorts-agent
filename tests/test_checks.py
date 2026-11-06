@@ -316,6 +316,39 @@ class ClonedVoice(unittest.TestCase):
         self.assertNotIn("Altered or synthetic content", posts_md(posts, [], False))
 
 
+class UploadSettings(unittest.TestCase):
+    VOICE = {"engine": "edge", "clips": [
+        {"duration": 2.0, "words": [{"word": "Hello", "start": 0.1, "end": 0.5}, {"word": "there.", "start": 0.6, "end": 1.0}]},
+        {"duration": 1.5, "words": [{"word": "Bye.", "start": 0.2, "end": 0.6}]}]}
+
+    def test_srt_cues_follow_scene_offsets(self):
+        from agent.social import srt
+        out = srt(CFG, self.VOICE)
+        self.assertIn("00:00:00,100 --> 00:00:01,000\nHello there.", out)
+        gap = CFG["tts"]["scene_gap_seconds"]
+        start = round((2.0 + gap) * CFG["video"]["fps"]) / CFG["video"]["fps"] + 0.2
+        self.assertIn(f"00:00:0{int(start)},{round(start % 1 * 1000):03d}", out)
+
+    def test_cloned_voice_is_disclosed_and_not_remixable(self):
+        from agent.social import upload_settings
+        rows = "\n".join(upload_settings(CFG, {"language": "ta"}, good_posts(), {"engine": "clone"}, None))
+        self.assertIn("**Yes** - the voiceover is your cloned", rows)
+        self.assertIn("Don't allow remixing", rows)
+        self.assertIn("| Language (video and title/description) | Tamil |", rows)
+        self.assertIn("not made for kids", rows)
+
+    def test_tags_have_no_hash_and_fit(self):
+        from agent.social import tags_for
+        posts = good_posts()
+        posts["youtube"]["hashtags"] = ["#AI", "#Shorts", "#Google"]
+        posts["youtube"]["tags"] = ["Google AI tutor"] + [f"term {i}" for i in range(80)]
+        tags = tags_for(posts, CFG)
+        self.assertEqual(tags[0], "Google AI tutor")
+        self.assertNotIn("Shorts", tags)
+        self.assertTrue(all("#" not in t for t in tags))
+        self.assertLessEqual(sum(len(t) + 1 for t in tags), 450)
+
+
 class VoiceLanguage(unittest.TestCase):
     def test_spoken_line_wins_over_english(self):
         from agent.language import spoken
