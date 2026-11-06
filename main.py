@@ -29,10 +29,12 @@ def write_script_md(script: dict, fc: dict | None, path: Path) -> None:
     if script.get("audit_warnings"):
         lines += ["> **Check before recording** - the fact audit still flags:", ""]
         lines += [f"> - {w}" for w in script["audit_warnings"]] + [""]
-    lines += ["## As it will be heard", "", " ".join(s.get("voiceover", "") for s in script["scenes"]), ""]
+    lines += ["## As it will be heard", "", " ".join(s.get("spoken") or s.get("voiceover", "") for s in script["scenes"]), ""]
     lines += ["## Script", ""]
     for s in script["scenes"]:
         lines.append(f"**{s['id']}. {s['type'].upper()}** — {s['voiceover']}")
+        if s.get("spoken"):
+            lines.append(f"  - spoken ({script.get('language')}): {s['spoken']}")
         lines.append(f"  - on screen: {s.get('on_screen')}  · claims: {', '.join(s.get('claim_ids', []))}")
     if any(s.get("read") for s in script["scenes"]):
         from agent.scriptwriter import format_read
@@ -83,6 +85,8 @@ def main() -> int:
     ap.add_argument("--stop-after", choices=["research", "factcheck", "script", "tts"], default=None)
     ap.add_argument("--tts", choices=["edge", "kokoro", "mine", "clone"], default=None,
                     help="voiceover: AI voice, 'mine' to record yourself, or 'clone' for your cloned voice")
+    ap.add_argument("--language", choices=["en", "ta"], default=None,
+                    help="voiceover language (the script is fact-checked in English, then translated)")
     ap.add_argument("--reuse-takes", action="store_true", help="with --tts mine: re-process your kept recordings, no prompts")
     ap.add_argument("--template", choices=["tutorial", "terminal", "news", "editorial", "chat", "classic"], default=None, help="video look for this run")
     ap.add_argument("--brain", choices=["api", "subscription"], default=None, help="who researches and writes: API key or your Claude subscription")
@@ -96,6 +100,12 @@ def main() -> int:
     cfg = load_config(args.config)
     if args.tts:
         cfg["tts"]["engine"] = args.tts
+    if args.language:
+        cfg["tts"]["language"] = args.language
+    elif sys.stdin.isatty() and not args.interactive and args.stop_after not in ("research", "factcheck"):
+        from agent.language import ask_language
+
+        cfg["tts"]["language"] = ask_language(cfg)
     if args.template:
         cfg["video"]["template"] = args.template
     if args.no_images:
@@ -161,6 +171,17 @@ def main() -> int:
             return 0
 
     folder.mkdir(parents=True, exist_ok=True)
+    lang = cfg["tts"].get("language", "en")
+    if lang != script.get("language", "en") or (lang != "en" and not all(s.get("spoken") for s in script["scenes"])):
+        from agent.language import translate
+
+        if args.from_script:
+            from agent.llm import ask_brain, make_claude
+
+            claude = make_claude(cfg, args.brain or ask_brain(cfg))
+        script = translate(claude, cfg, script, lang)
+        save_json(script, folder / "script.json")
+        write_script_md(script, fc, folder / "script.md")
     if args.stop_after not in ("script",):  # offer real photos before recording/rendering
         from agent.images import maybe_add
 

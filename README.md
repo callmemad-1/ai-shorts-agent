@@ -68,6 +68,7 @@ python main.py --stop-after script     # research + fact-check + script only
 python main.py --from-script outputs/<date>/<topic>/script.json   # re-render a script in its folder
 python main.py --tts kokoro            # force the offline voice
 python main.py --pattern explainer     # Q&A-style script instead of the story arc
+python main.py --language ta           # Tamil voiceover and captions
 python main.py --no-images --no-social # skip the photo step / the social posts
 ```
 
@@ -221,13 +222,34 @@ can use your voice with nobody at the keyboard. About 2.5 minutes per Short.
 - Every scene is levelled to the same loudness, and Whisper checks it: under 80% of the
   words heard clearly (`tts.clone.min_match`) and it's generated again, up to 2 times
   (`tts.clone.retries`), then flagged for you to listen to.
-- If it runs long, it's sped up gently (at most x1.12, pitch kept).
+- Scripts are sized to the clone's own pace (measured on every clone run, kept in
+  `voice_profile.json`; `tts.clone.wpm` until the first run). If one still runs long,
+  it's sped up gently (at most x1.12, pitch kept).
 - If local-voice is missing or fails, the run falls back to the AI voice.
 - `posts.md` reminds you to mark the upload as **altered or synthetic content** on YouTube
   and to turn on Instagram's AI label.
 
 The agent only starts local-voice's own worker (`.venv-index`, `app.index_worker`); it
 doesn't change the tool. Re-record the reference clip in local-voice to change the voice.
+
+## Voiceover language (English or Tamil)
+
+Before each video you're asked which language the voiceover is in (Enter keeps
+`tts.language`; `--language en|ta` skips the question). The script is always written
+and fact-checked in English. For Tamil:
+
+1. Each scene's line is translated into everyday spoken Tamil (names written as they're
+   said, numbers as words), then a second model translates it back and compares the
+   meaning with the English. Differences are fixed once; anything left is flagged in
+   `script.md` and before recording.
+2. The voice: your cloned voice through Maya 2 (local-voice; it keeps the delivery of
+   your reference recording, no mood control), or the Tamil Edge voice
+   (`tts.edge_voice_ta`). Recording yourself is English-only for now.
+3. Captions show the Tamil words (timings estimated, since Whisper here only knows
+   English). Headlines, numbers and source chips stay in English. Tamil text needs
+   `brew install fribidi` (done by `setup_mac.sh`) so the vowel signs are drawn right.
+
+Social posts stay in English.
 
 ## Customise
 
@@ -278,6 +300,8 @@ agent/images.py         free-licence photo search and picker
 agent/tts.py            stage 4 (edge-tts, Kokoro, Edge as last fallback; auto-fits 50-60 s)
 agent/myvoice.py        your own voice: recording, clean-up, Whisper word timings, pace
 agent/clone.py          your cloned voice via the local-voice tool (mood per scene)
+agent/language.py       voiceover language: translation + meaning back-check
+agent/maya_worker.py    runs Maya 2 inside local-voice for Tamil
 agent/briefing.py       interactive mode: fact-check all, briefing, pick stories
 agent/social.py         YouTube / Instagram / LinkedIn posts and carousel
 agent/render.py         stage 5 (classic 9:16 template, captions, parallel scene render)

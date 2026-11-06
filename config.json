@@ -154,7 +154,9 @@
   "tts": {
     "engine": "edge",
     "fallback_engine": "kokoro",
+    "language": "en",
     "edge_voice": "en-US-AndrewNeural",
+    "edge_voice_ta": "ta-IN-ValluvarNeural",
     "kokoro_voice": "am_michael",
     "kokoro_model": "assets/tts/kokoro-v1.0.onnx",
     "kokoro_voices": "assets/tts/voices-v1.0.bin",
@@ -166,7 +168,8 @@
       "reference": "data/voice.wav",
       "intensity": 0.8,
       "min_match": 0.8,
-      "retries": 2
+      "retries": 2,
+      "wpm": 121
     }
   },
   "video": {

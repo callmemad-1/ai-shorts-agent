@@ -20,6 +20,7 @@ if ! command -v brew >/dev/null 2>&1; then
   eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv)"
 fi
 command -v ffmpeg >/dev/null 2>&1 || brew install ffmpeg
+brew list fribidi >/dev/null 2>&1 || brew install fribidi   # shapes Tamil text in captions
 PY=""
 for c in python3.13 python3.12 python3.11 python3.10; do
   if command -v $c >/dev/null 2>&1; then PY=$c; break; fi

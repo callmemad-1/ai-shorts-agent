@@ -267,10 +267,54 @@ class ClonedVoice(unittest.TestCase):
         self.assertEqual(emotion_for({"type": "hook", "tone": ""}), "excited")
         self.assertEqual(emotion_for({"type": "verify"}), "serious")
 
+    def test_scripts_sized_to_clone_pace(self):
+        from unittest import mock
+        from agent import myvoice
+        cfg = copy.deepcopy(CFG)
+        cfg["tts"]["engine"] = "clone"
+        cfg["tts"]["clone"]["wpm"] = 120
+        with mock.patch("agent.clone.available", return_value=True), \
+                mock.patch.object(myvoice, "PACE_FILE", ROOT / "tests" / "_no_profile.json"):
+            myvoice.fit_script_to_pace(cfg)
+        speaking = cfg["script"]["target_seconds"] - 8 * cfg["tts"]["scene_gap_seconds"]
+        self.assertEqual(cfg["script"]["words_max"], int(120 * speaking / 60))
+        self.assertEqual(cfg["script"]["words_min"], cfg["script"]["words_max"] - 20)
+
     def test_disclosure_reminder_only_for_cloned_voice(self):
         posts = good_posts()
         self.assertIn("Altered or synthetic content", posts_md(posts, [], True))
         self.assertNotIn("Altered or synthetic content", posts_md(posts, [], False))
+
+
+class VoiceLanguage(unittest.TestCase):
+    def test_spoken_line_wins_over_english(self):
+        from agent.language import spoken
+        self.assertEqual(spoken({"voiceover": "Hello.", "spoken": "வணக்கம்."}), "வணக்கம்.")
+        self.assertEqual(spoken({"voiceover": "Hello."}), "Hello.")
+
+    def test_english_clears_old_translation(self):
+        from agent.language import translate
+        script = {"language": "ta", "scenes": [{"id": 1, "voiceover": "Hi.", "spoken": "வணக்கம்."}]}
+        out = translate(None, CFG, script, "en")
+        self.assertEqual(out["language"], "en")
+        self.assertNotIn("spoken", out["scenes"][0])
+
+    def test_tamil_edge_voice_used(self):
+        from unittest import mock
+        from agent import tts
+        seen = []
+        script = {"language": "ta", "scenes": [{"id": 1, "voiceover": "Hi.", "spoken": "வணக்கம்."}]}
+        with mock.patch.dict(tts.ENGINES, {"edge": lambda text, wav, cfg, speed: seen.append((text, cfg["tts"]["edge_voice"])) or (1.0, [])}):
+            tts._synth_all(script, CFG, Path("/tmp"), "edge", 1.0)
+        self.assertEqual(seen, [("வணக்கம்.", CFG["tts"]["edge_voice_ta"])])
+
+    def test_tamil_text_gets_a_tamil_font(self):
+        from PIL import ImageFont
+        from agent.render import script_font
+        latin = ImageFont.truetype(str(ROOT / "assets/fonts/Inter-Regular.otf"), 40)
+        self.assertIs(script_font("Hello", latin), latin)
+        if Path("/System/Library/Fonts/Supplemental/Tamil Sangam MN.ttc").exists():
+            self.assertIn("Tamil", script_font("வணக்கம்", latin).getname()[0])
 
 
 if __name__ == "__main__":

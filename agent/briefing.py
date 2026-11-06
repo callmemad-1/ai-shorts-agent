@@ -161,6 +161,9 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
     fit_script_to_pace(cfg)
     script = scriptwriter.run(claude, cfg, {"story": story, "factcheck": fc})
     script["date_label"] = today.strftime("%b %d, %Y").upper()
+    from .language import translate
+
+    script = translate(claude, cfg, script, cfg["tts"].get("language", "en"))
     save_json(script, folder / "script.json")
     write_script_md(script, fc, folder / "script.md")
     if cfg.get("images", {}).get("_want"):  # photos before recording, so the first render has them
@@ -189,7 +192,10 @@ def ask_voice(cfg: dict) -> str:
     from . import clone
 
     have_clone = clone.available(cfg)
-    options = [("edge", "AI voice (Edge, free)"), ("mine", "Record my own voice now")]
+    lang = cfg["tts"].get("language", "en")
+    options = [("edge", "AI voice (Edge, free)")]
+    if lang == "en":  # recording yourself is English-only for now
+        options.append(("mine", "Record my own voice now"))
     if have_clone:
         options.append(("clone", "My cloned voice (local-voice, no recording)"))
     current = cfg["tts"]["engine"] if cfg["tts"]["engine"] in dict(options) else "edge"
@@ -219,6 +225,9 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
     print(f"Full briefing with every fact and link: {out / 'briefing.md'}")
     picks = ask_choice(b)
     if picks:
+        from .language import ask_language
+
+        cfg["tts"]["language"] = ask_language(cfg)
         cfg["tts"]["engine"] = ask_voice(cfg)
     if picks:
         # each story gets its own template and pattern, recommended for its category

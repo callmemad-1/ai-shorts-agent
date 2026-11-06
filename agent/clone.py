@@ -26,7 +26,7 @@ EMOTION_BY_TONE = [
     (r"warm|friend|smile|kind|light", "warm"),
     (r"calm|steady|plain|clear|even", "calm"),
 ]
-PAUSE_SECONDS = 0.45  # a "||" beat in the script's reading cues
+PAUSE_SECONDS = 0.3  # a "||" beat in the script's reading cues
 
 
 def available(cfg: dict) -> bool:
@@ -63,22 +63,27 @@ def spoken_parts(scene: dict, pronounce: list[dict]) -> list[str]:
 
 
 class Worker:
-    """One local-voice IndexTTS process for the whole Short (the model loads once)."""
+    """One local-voice process for the whole Short (the model loads once): IndexTTS for
+    English (with a mood), or Maya 2 for Tamil (keeps the delivery of your recording)."""
 
-    def __init__(self, cfg: dict, logdir: Path):
+    def __init__(self, cfg: dict, logdir: Path, language: str = "en"):
         c = cfg["tts"]["clone"]
         self.root = Path(c["path"]).expanduser()
         self.reference = self.root / c.get("reference", "data/voice.wav")
         self.intensity = c.get("intensity", 0.8)
+        self.language = language
         self.log = open(logdir / "clone-worker.log", "a", encoding="utf-8")
-        self.proc = subprocess.Popen(
-            [str(self.root / ".venv-index" / "bin" / "python"), "-m", "app.index_worker"],
-            cwd=self.root, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log, text=True, bufsize=1,
-        )
+        if language == "en":
+            cmd = [str(self.root / ".venv-index" / "bin" / "python"), "-m", "app.index_worker"]
+        else:
+            cmd = [str(self.root / ".venv" / "bin" / "python"), str(Path(__file__).with_name("maya_worker.py")),
+                   str(self.root)]
+        self.proc = subprocess.Popen(cmd, cwd=self.root, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=self.log, text=True, bufsize=1)
 
     def speak(self, text: str, emotion: str, out: Path) -> None:
         req = {"text": text, "reference": str(self.reference), "emotion": emotion,
-               "intensity": self.intensity, "output": str(out)}
+               "intensity": self.intensity, "output": str(out), "language": self.language}
         self.proc.stdin.write(json.dumps(req) + "\n")
         self.proc.stdin.flush()
         while True:
@@ -118,21 +123,25 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
     import numpy as np
     import soundfile as sf
 
-    from .myvoice import align
-    from .tts import SR, _ffprobe_duration
+    from .language import spoken
+    from .myvoice import _loudest_db, align
+    from .tts import SR, _ffprobe_duration, estimate_word_times
 
     c = cfg["tts"]["clone"]
     min_match, retries = c.get("min_match", 0.8), c.get("retries", 2)
     outdir.mkdir(parents=True, exist_ok=True)
     tmp = outdir / "clone_tmp"
     tmp.mkdir(exist_ok=True)
-    log("Cloned voice: loading your local-voice model (about 30 s the first time)...")
-    worker = Worker(cfg, outdir)
+    lang = script.get("language", "en")
+    log(f"Cloned voice ({'IndexTTS' if lang == 'en' else 'Maya'}, {lang}): loading your local-voice model "
+        "(about 30 s the first time)...")
+    worker = Worker(cfg, outdir, lang)
     clips, flagged = [], []
     try:
         for s in script["scenes"]:
             mood = emotion_for(s)
-            parts = spoken_parts(s, script.get("pronounce", []))
+            # Tamil: the translated line, whole (Maya has no mood; the English read marks don't apply)
+            parts = spoken_parts(s, script.get("pronounce", [])) if lang == "en" else [spoken(s)]
             wav = outdir / f"scene_{s['id']:02d}.wav"
             best = None
             for attempt in range(retries + 1):
@@ -154,7 +163,11 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
                 audio[len(audio) - fade:] *= np.linspace(1, 0, fade)
                 sf.write(str(wav), audio, SR, subtype="PCM_24")
                 dur = _ffprobe_duration(wav)
-                words, ratio, heard, missing = align(s["voiceover"], wav, dur)
+                if lang == "en":
+                    words, ratio, heard, missing = align(s["voiceover"], wav, dur)
+                else:  # Whisper here only knows English: check there's a voice, and estimate the timings
+                    ok = _loudest_db(wav) > -40
+                    words, ratio, missing = estimate_word_times(spoken(s), dur), 1.0 if ok else 0.0, [] if ok else ["(silent)"]
                 if best is None or ratio > best[1]:
                     best = (wav.read_bytes(), ratio, words, dur, missing)
                 if ratio >= min_match:
@@ -166,7 +179,8 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
             wav.write_bytes(data)
             if ratio < min_match:
                 flagged.append(f"scene {s['id']} ({ratio:.0%}; listen for: {', '.join(missing)})")
-            log(f"Scene {s['id']} [{mood}]: {dur:.1f}s, {ratio:.0%} of words clear")
+            log(f"Scene {s['id']} [{mood}]: {dur:.1f}s, {ratio:.0%} of words clear" if lang == "en" else
+                f"Scene {s['id']}: {dur:.1f}s, {'voice present' if ratio else 'SILENT'} (Maya keeps your recorded delivery)")
             clips.append({"scene_id": s["id"], "wav": str(wav), "duration": round(dur, 3), "words": words,
                           "emotion": mood, "match": round(ratio, 3)})
     finally:
@@ -175,6 +189,12 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
             f.unlink()
         tmp.rmdir()
     gap, sc = cfg["tts"]["scene_gap_seconds"], cfg["script"]
+    from .myvoice import update_pace
+
+    # before any speed-up: the clone's natural pace (English only: it sizes the English script)
+    wpm = update_pace(script, clips, voice="clone") if lang == "en" else None
+    if wpm:
+        log(f"Cloned voice pace: {wpm:.0f} wpm (the next script is sized to it)")
     total = sum(x["duration"] for x in clips) + gap * len(clips)
     if total > sc["max_seconds"]:  # the model has no speed knob: tighten gently with ffmpeg (pitch kept)
         f = min(1.12, total / sc["target_seconds"])

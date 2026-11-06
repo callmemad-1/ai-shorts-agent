@@ -113,11 +113,16 @@ ENGINES = {"edge": synth_edge, "kokoro": synth_kokoro}
 
 
 def _synth_all(script: dict, cfg: dict, outdir: Path, engine: str, speed: float):
+    from .language import spoken
+
     fn = ENGINES[engine]
+    lang = script.get("language", "en")
+    if lang != "en":  # e.g. a Tamil Edge voice for a Tamil Short
+        cfg = {**cfg, "tts": {**cfg["tts"], "edge_voice": cfg["tts"].get(f"edge_voice_{lang}", cfg["tts"]["edge_voice"])}}
     clips = []
     for s in script["scenes"]:
         wav = outdir / f"scene_{s['id']:02d}.wav"
-        dur, words = fn(s["voiceover"], wav, cfg, speed)
+        dur, words = fn(spoken(s), wav, cfg, speed)
         clips.append({"scene_id": s["id"], "wav": str(wav), "duration": round(dur, 3), "words": words})
     return clips
 
@@ -125,6 +130,12 @@ def _synth_all(script: dict, cfg: dict, outdir: Path, engine: str, speed: float)
 def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
     outdir.mkdir(parents=True, exist_ok=True)
     sc, gap = cfg["script"], cfg["tts"]["scene_gap_seconds"]
+    lang = script.get("language", "en")
+    if cfg["tts"]["engine"] == "mine" and lang != "en":
+        from . import clone as _clone
+
+        cfg = {**cfg, "tts": {**cfg["tts"], "engine": "clone" if _clone.available(cfg) else "edge"}}
+        log(f"Recording yourself is English-only for now; using the {cfg['tts']['engine']} voice for this {lang} Short.")
     if cfg["tts"]["engine"] == "mine":
         if sys.stdin.isatty() or cfg["tts"].get("reuse_takes"):
             from .myvoice import record_all
@@ -146,6 +157,8 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
         engines.append(cfg["tts"]["fallback_engine"])
     if "edge" not in engines:  # always end on the online voice: it needs no model files
         engines.append("edge")
+    if lang != "en":
+        engines = [e for e in engines if e == "edge"]  # Kokoro is English-only
 
     last_err = None
     for engine in engines:

@@ -93,7 +93,23 @@ def fit(text: str, path: Path, max_size: int, min_size: int, max_w: int, max_lin
     return f, wrap(text, f, max_w)
 
 
+# Indic scripts the Latin fonts don't have: (unicode range, font file, face index for bold)
+SCRIPT_FONTS = [
+    (re.compile(r"[\u0B80-\u0BFF]"), Path("/System/Library/Fonts/Supplemental/Tamil Sangam MN.ttc"), 2),
+]
+
+
+def script_font(line: str, fnt):
+    """Same size, in a font that has the line's letters (Tamil captions in a Tamil Short).
+    Needs Pillow's raqm layout (brew install fribidi) so vowel signs land in the right place."""
+    for pattern, path, index in SCRIPT_FONTS:
+        if pattern.search(line) and path.exists():
+            return ImageFont.truetype(str(path), int(fnt.size), index=index)
+    return fnt
+
+
 def text_img(line: str, fnt, fill, stroke=0, stroke_fill=(0, 0, 0)) -> Image.Image:
+    fnt = script_font(line, fnt)
     l, t, r, b = fnt.getbbox(line, stroke_width=stroke)
     asc, desc = fnt.getmetrics()
     w, h = int(r - min(l, 0)) + 4, asc + desc + stroke * 2 + 4
