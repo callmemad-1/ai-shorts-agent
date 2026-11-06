@@ -176,9 +176,13 @@ def carousel(cfg: dict, script: dict, voice: dict, out: Path, slides: int = 6) -
     return paths
 
 
-def markdown(posts: dict, slides: list[Path]) -> str:
+def markdown(posts: dict, slides: list[Path], synthetic_voice: bool = False) -> str:
     yt, ig, li = posts["youtube"], posts["instagram"], posts["linkedin"]
     out = ["# Social posts", "", "Review before posting. Nothing here has been posted.", ""]
+    if synthetic_voice:
+        out += ["> **The voiceover is your cloned (AI-generated) voice.** When uploading to YouTube, answer "
+                "**Yes** to \"Altered or synthetic content\" (Details → Show more). On Instagram, turn on the "
+                "**AI label** (Advanced settings). Check each platform's current rules.", ""]
     if posts.get("remaining_issues"):
         out += ["**Check these first:** " + "; ".join(posts["remaining_issues"]), ""]
     out += ["## YouTube Shorts", "", "**Title**", "```", yt["title"], "```", "", "**Description**", "```",
@@ -212,12 +216,13 @@ def make(script_path: Path, cfg: dict, claude=None) -> Path:
         raise RuntimeError("Couldn't write the social posts with either the API or the subscription.")
     out = folder / "posts"
     out.mkdir(exist_ok=True)
-    slides = []
+    slides, voice = [], {}
     voice_p = folder / "voice" / "timings.json"
     if voice_p.exists():
-        slides = carousel(cfg, script, json.loads(voice_p.read_text()), out)
+        voice = json.loads(voice_p.read_text())
+        slides = carousel(cfg, script, voice, out)
     (out / "posts.json").write_text(json.dumps(posts, indent=2, ensure_ascii=False))
-    (out / "posts.md").write_text(markdown(posts, slides), encoding="utf-8")
+    (out / "posts.md").write_text(markdown(posts, slides, voice.get("engine") == "clone"), encoding="utf-8")
     log(f"Social pack ready: {out / 'posts.md'} (+ {len(slides)} carousel slides)")
     return out
 

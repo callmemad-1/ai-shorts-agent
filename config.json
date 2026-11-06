@@ -160,7 +160,14 @@
     "kokoro_voices": "assets/tts/voices-v1.0.bin",
     "scene_gap_seconds": 0.25,
     "mic_device": "Wireless Microphone",
-    "voice_enhance": true
+    "voice_enhance": true,
+    "clone": {
+      "path": "/Users/kaushik/local-voice",
+      "reference": "data/voice.wav",
+      "intensity": 0.8,
+      "min_match": 0.8,
+      "retries": 2
+    }
   },
   "video": {
     "width": 1080,

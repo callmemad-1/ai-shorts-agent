@@ -17,7 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from agent.factcheck import enforce_rules, evidence_ok, source_tier  # noqa: E402
 from agent.scriptwriter import check_flow, check_speakability, check_structure, spoken_numbers  # noqa: E402
-from agent.social import check as social_check, names_site  # noqa: E402
+from agent.social import check as social_check, markdown as posts_md, names_site  # noqa: E402
+from agent.clone import emotion_for, spoken_parts  # noqa: E402
 
 CFG = json.loads((ROOT / "config.json").read_text())
 TIERS = {**CFG["research"]["source_tiers"], "blocked": CFG["research"]["aggregator_domains"]}
@@ -242,6 +243,34 @@ class SocialPosts(unittest.TestCase):
         posts = good_posts()
         posts["youtube"]["title"] = "x" * 71
         self.assertTrue(any("YouTube title" in p for p in social_check(posts, CFG)))
+
+
+class ClonedVoice(unittest.TestCase):
+    def test_pauses_split_and_marks_removed(self):
+        scene = {"voiceover": "Tencent says it can use a computer. Here's the catch.",
+                 "read": "Tencent *says* it can use a computer. || Here's the catch."}
+        self.assertEqual(spoken_parts(scene, []), ["Tencent says it can use a computer.", "Here's the catch."])
+
+    def test_pronunciation_applied_as_whole_word(self):
+        scene = {"voiceover": "Hy4 is out. Hy4x is not."}
+        parts = spoken_parts(scene, [{"word": "Hy4", "say": "HIGH four?"}])
+        self.assertEqual(parts, ["high four is out. Hy4x is not."])
+
+    def test_no_read_uses_voiceover(self):
+        self.assertEqual(spoken_parts({"voiceover": "Plain line."}, []), ["Plain line."])
+
+    def test_tone_note_picks_mood(self):
+        self.assertEqual(emotion_for({"type": "twist", "tone": "Flat, a little skeptical"}), "serious")
+        self.assertEqual(emotion_for({"type": "outro", "tone": "Calm payoff, then warm sign-off"}), "warm")
+
+    def test_scene_type_is_the_fallback(self):
+        self.assertEqual(emotion_for({"type": "hook", "tone": ""}), "excited")
+        self.assertEqual(emotion_for({"type": "verify"}), "serious")
+
+    def test_disclosure_reminder_only_for_cloned_voice(self):
+        posts = good_posts()
+        self.assertIn("Altered or synthetic content", posts_md(posts, [], True))
+        self.assertNotIn("Altered or synthetic content", posts_md(posts, [], False))
 
 
 if __name__ == "__main__":

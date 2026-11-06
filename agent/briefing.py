@@ -184,6 +184,27 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
     return mp4
 
 
+def ask_voice(cfg: dict) -> str:
+    """Who speaks the voiceover. Enter keeps tts.engine from config."""
+    from . import clone
+
+    have_clone = clone.available(cfg)
+    options = [("edge", "AI voice (Edge, free)"), ("mine", "Record my own voice now")]
+    if have_clone:
+        options.append(("clone", "My cloned voice (local-voice, no recording)"))
+    current = cfg["tts"]["engine"] if cfg["tts"]["engine"] in dict(options) else "edge"
+    print("\nVoiceover:")
+    for i, (key, label) in enumerate(options, 1):
+        print(f"  {i}. {label}{'  ← default' if key == current else ''}")
+    try:
+        ans = input(f"Pick 1-{len(options)} · Enter = default: ").strip()
+    except EOFError:
+        return current
+    if ans.isdigit() and 1 <= int(ans) <= len(options):
+        return options[int(ans) - 1][0]
+    return current
+
+
 def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, brain: str | None = None) -> int:
     from .llm import ask_brain, make_claude
 
@@ -198,14 +219,7 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
     print(f"Full briefing with every fact and link: {out / 'briefing.md'}")
     picks = ask_choice(b)
     if picks:
-        mine = cfg["tts"]["engine"] == "mine"
-        ans = input(f"Voiceover: record your own voice? [{'Y/n' if mine else 'y/N'}] ").strip().lower()
-        if ans in ("y", "yes") or (ans == "" and mine):
-            cfg["tts"]["engine"] = "mine"
-        elif cfg["tts"]["engine"] == "mine":
-            cfg["tts"]["engine"] = cfg["tts"].get("fallback_engine") or "edge"
-            if cfg["tts"]["engine"] == "kokoro":
-                cfg["tts"]["engine"] = "edge"
+        cfg["tts"]["engine"] = ask_voice(cfg)
     if picks:
         # each story gets its own template and pattern, recommended for its category
         looks = {}

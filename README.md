@@ -207,6 +207,28 @@ checks them, and code checks lengths, sources, clickbait and aggregator names. T
 agent never posts anything: you copy from `posts.md` and post yourself. Redo them
 with `python -m agent.social outputs/<date>/<topic>/script.json`.
 
+## Your cloned voice (no recording)
+
+If you have the local-voice tool (`tts.clone.path`, default `/Users/kaushik/local-voice`),
+pick **My cloned voice** at the voiceover question, or run `--tts clone`. Each scene is
+spoken in your voice by IndexTTS 2.5 on this Mac, free and offline, so scheduled runs
+can use your voice with nobody at the keyboard. About 2.5 minutes per Short.
+
+- **Mood per scene**: from the scene's tone note ("skeptical" → serious, "warm sign-off"
+  → warm), else by scene type (hook excited, stakes and reality check serious, outro warm).
+- `||` beats in the reading cues become real pauses; the pronunciation guide is applied,
+  so "Hy4" is sent as "high four".
+- Every scene is levelled to the same loudness, and Whisper checks it: under 80% of the
+  words heard clearly (`tts.clone.min_match`) and it's generated again, up to 2 times
+  (`tts.clone.retries`), then flagged for you to listen to.
+- If it runs long, it's sped up gently (at most x1.12, pitch kept).
+- If local-voice is missing or fails, the run falls back to the AI voice.
+- `posts.md` reminds you to mark the upload as **altered or synthetic content** on YouTube
+  and to turn on Instagram's AI label.
+
+The agent only starts local-voice's own worker (`.venv-index`, `app.index_worker`); it
+doesn't change the tool. Re-record the reference clip in local-voice to change the voice.
+
 ## Customise
 
 Everything lives in `config.json`:
@@ -255,6 +277,7 @@ agent/scriptwriter.py   stage 3 (+ validation and audit loop)
 agent/images.py         free-licence photo search and picker
 agent/tts.py            stage 4 (edge-tts, Kokoro, Edge as last fallback; auto-fits 50-60 s)
 agent/myvoice.py        your own voice: recording, clean-up, Whisper word timings, pace
+agent/clone.py          your cloned voice via the local-voice tool (mood per scene)
 agent/briefing.py       interactive mode: fact-check all, briefing, pick stories
 agent/social.py         YouTube / Instagram / LinkedIn posts and carousel
 agent/render.py         stage 5 (classic 9:16 template, captions, parallel scene render)

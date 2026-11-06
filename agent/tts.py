@@ -6,6 +6,8 @@ Engines:
 - "kokoro" : Kokoro-82M ONNX, fully offline and free (model files ~330 MB,
              see README). Word timings are estimated.
 - "mine"   : you read each line into the mic (agent/myvoice.py).
+- "clone"  : your cloned voice from the local-voice tool, with a mood per scene
+             (agent/clone.py). No one needs to be at the keyboard.
 """
 from __future__ import annotations
 
@@ -129,7 +131,17 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
 
             return record_all(script, cfg, outdir, reuse_takes=cfg["tts"].get("reuse_takes", False))
         log("Your-voice mode needs you at the keyboard; using the AI voice for this run.")
-    engines = [cfg["tts"]["engine"]] if cfg["tts"]["engine"] != "mine" else []
+    if cfg["tts"]["engine"] == "clone":
+        from . import clone
+
+        if clone.available(cfg):
+            try:
+                return clone.synthesize(script, cfg, outdir)
+            except Exception as e:  # noqa: BLE001 - never lose the day's Short to the clone
+                log(f"Cloned voice failed ({e}); using the AI voice for this run.")
+        else:
+            log(f"Cloned voice not found at {cfg['tts'].get('clone', {}).get('path')}; using the AI voice for this run.")
+    engines = [cfg["tts"]["engine"]] if cfg["tts"]["engine"] not in ("mine", "clone") else []
     if cfg["tts"].get("fallback_engine") and cfg["tts"]["fallback_engine"] not in engines:
         engines.append(cfg["tts"]["fallback_engine"])
     if "edge" not in engines:  # always end on the online voice: it needs no model files
