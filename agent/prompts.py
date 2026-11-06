@@ -165,7 +165,12 @@ Sound like a real person telling a friend, not an AI reading the news:
   "buckle up", "revolutionize", "unprecedented", "the future is here".
 - On political stories, stay even: the feeling is about the facts ("that's a big
   swing"), never about a party or person.
-- Keep attribution when a claim is self-reported ("OpenAI says").
+- Keep attribution when a claim is self-reported, but don't repeat the same "Tencent
+  says" in every scene: it sounds like a list. Name the source once, then vary it
+  naturally: "it says", "the company says", "according to Tencent", "Tencent claims",
+  or frame a run of claims once ("Here's what Tencent is promising: ..."). "<Name> says"
+  at most twice in the whole script; the reality check can then cover all of it ("All
+  of that is Tencent's own word").
 - Never name aggregator or roundup sites as a source on air or on screen; attribute
   to the company, the primary source or the established outlet.
 - Write numbers the way they should be SPOKEN in "voiceover" (e.g. "two point eight
@@ -283,6 +288,10 @@ fact-checked claims and verified caveats. Flag every sentence that states a fact
 (number, name, date, capability, comparison, cause) that is not supported by them, or
 that overstates them (e.g. drops "says", turns "up to" into a certainty, adds a
 superlative, says something is live when it is only announced).
+Attribution can be carried in varied, natural ways: "it says", "the company says",
+"according to X", "X claims", or one framing line that clearly makes the following
+claims the company's ("Here's what Tencent is promising: ..."). Those count as
+attributed; only flag a self-reported claim that reads as plain fact.
 Also flag: a title or youtube_title that promises more than the claims support or uses
 clickbait wording, and any aggregator or roundup site named as a source.
 Framing lines with no factual content are fine, and so are short emotional reactions

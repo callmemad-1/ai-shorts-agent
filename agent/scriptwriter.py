@@ -166,6 +166,8 @@ FEATURE_LIST = re.compile(rf"\b(?:{_ITEM}, )+{_ITEM},? (?:and|or) {_ITEM}", re.I
 STOPWORDS = set("a an the and or but so to of in on at for with it its it's is are was be this that you your "
                 "they them their there here what how why can will just not no yes we i our".split())
 CHOPPY_WORDS, CHOPPY_SHARE = 7, 0.5
+ATTRIBUTION = re.compile(r"\b([A-Z][\w’'-]+(?: [A-Z][\w’'-]+)?) (says|said|claims|claimed)\b")
+MAX_SAME_ATTRIBUTION = 2
 
 
 def sentences(text: str) -> list[str]:
@@ -190,7 +192,20 @@ def check_flow(scenes: list[dict]) -> list[str]:
             if all(w in STOPWORDS for w in gram):
                 continue
             seen.setdefault(" ".join(gram), set()).add(s.get("id"))
-    reps = sorted(g for g, ids in seen.items() if len(ids) >= 3)
+    # "Tencent says" in every scene: one specific message, not the generic repeat one
+    attr: dict[str, set] = {}
+    for s in body:
+        for m in ATTRIBUTION.finditer(s.get("voiceover", "")):
+            if m.group(1).lower() not in STOPWORDS:
+                attr.setdefault(m.group(1), set()).add(s.get("id"))
+    for who, ids in attr.items():
+        if len(ids) > MAX_SAME_ATTRIBUTION:
+            problems.append(f"'{who} says' comes up in {len(ids)} scenes; it sounds like a list. Name {who} once or "
+                            "twice, then vary it ('it says', 'the company says', 'according to "
+                            f"{who}') or frame the claims once and let the reality check cover them.")
+    said = {w.lower() for w in attr}
+    reps = sorted(g for g, ids in seen.items() if len(ids) >= 3
+                  and not any(g.startswith(w + " ") for w in said))
     if reps:
         problems.append(f"The phrase {reps[0]!r} comes up in {len(seen[reps[0]])} scenes; say the main point at most "
                         "twice (hook and outro) and make every other scene add something new.")
@@ -361,15 +376,7 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
         script = approve(claude, cfg, script, ctx)
 
     # attach sources for the on-screen source line and description
-    evidence = [e for c in usable for e in c.get("evidence", [])]
-    seen, sources = set(), []
-    for e in evidence:
-        if any(a in e.get("url", "") for a in cfg["research"].get("aggregator_domains", [])):
-            continue  # still counted by the fact-check, but never shown or cited as a source
-        if e.get("url") and e["url"] not in seen:
-            seen.add(e["url"])
-            sources.append({"url": e["url"], "publisher": e.get("publisher", "")})
-    script["sources"] = sources
+    script["sources"] = cited_sources(usable, cfg)
     said = " ".join(s.get("voiceover", "") for s in script.get("scenes", [])).lower()
     script["pronounce"] = [x for x in script.get("pronounce", []) if isinstance(x, dict) and str(x.get("word", "")).lower() in said]
     script["story_title"] = story["title"]
@@ -484,6 +491,25 @@ def approve(claude: Claude, cfg: dict, script: dict, ctx: dict) -> dict:
             return script
         log(f"Rewriting with your note: {note}")
         script = polish(claude, cfg, script, ctx, seed=[{"problem": f"Producer's note - apply it to the whole script: {note}"}])
+
+
+def cited_sources(usable: list[dict], cfg: dict) -> list[dict]:
+    """The sources shown on screen and listed in the description: primary sources and major
+    outlets only, primary first. "Other" sites (trackers, directories, small blogs) still
+    count as fact-check evidence but are only cited when nothing better backs the story."""
+    agg = cfg["research"].get("aggregator_domains", [])
+    rank = {"P": 0, "M": 1}
+    seen, found = set(), []
+    for c in usable:
+        for e in c.get("evidence", []):
+            url = e.get("url")
+            if not url or url in seen or any(a in url for a in agg) or e.get("tier") == "x":
+                continue
+            seen.add(url)
+            found.append((rank.get(e.get("tier"), 2), len(found), {"url": url, "publisher": e.get("publisher", "")}))
+    found.sort(key=lambda x: (x[0], x[1]))
+    best = [x for x in found if x[0] < 2]
+    return [x[2] for x in (best or found)]
 
 
 def _outlet(name: str) -> str:

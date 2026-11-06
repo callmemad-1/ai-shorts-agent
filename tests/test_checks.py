@@ -136,6 +136,21 @@ class SpokenNumbers(unittest.TestCase):
         self.assertTrue(any("one breath" in p for p in check_speakability(scenes, 3)))
 
 
+class CitedSources(unittest.TestCase):
+    def test_only_primary_and_major_outlets_cited(self):
+        from agent.scriptwriter import cited_sources
+        usable = [{"evidence": [{"url": "https://tracker.example/list", "publisher": "Tracker", "tier": "o"},
+                                {"url": "https://www.reuters.com/a", "publisher": "Reuters", "tier": "M"},
+                                {"url": "https://openai.com/b", "publisher": "OpenAI", "tier": "P"}]}]
+        self.assertEqual([x["publisher"] for x in cited_sources(usable, CFG)], ["OpenAI", "Reuters"])
+
+    def test_falls_back_to_others_when_nothing_better(self):
+        from agent.scriptwriter import cited_sources
+        usable = [{"evidence": [{"url": "https://blog.example/x", "publisher": "Blog", "tier": "o"},
+                                {"url": "https://www.techmeme.com/y", "publisher": "Techmeme", "tier": "x"}]}]
+        self.assertEqual([x["publisher"] for x in cited_sources(usable, CFG)], ["Blog"])
+
+
 class Structure(unittest.TestCase):
     STORY = ["hook", "setup", "twist", "example", "stakes", "verify", "outro"]
     EXPLAINER = ["hook", "step", "step", "example", "verify", "outro"]
@@ -202,6 +217,21 @@ class Flow(unittest.TestCase):
         for i in (1, 3, 4):
             s[i]["voiceover"] += " It isn't open-source yet."
         self.assertTrue(any("comes up in" in p for p in check_flow(s)))
+
+    def test_same_attribution_in_three_scenes_flagged(self):
+        s = copy.deepcopy(FLOWING)
+        for i in (1, 2, 4):
+            s[i]["voiceover"] = "Tencent says " + s[i]["voiceover"][0].lower() + s[i]["voiceover"][1:]
+        probs = check_flow(s)
+        self.assertTrue(any("'Tencent says' comes up in" in p for p in probs))
+        self.assertFalse(any("The phrase 'tencent says" in p for p in probs))  # one message, not two
+
+    def test_varied_attribution_passes(self):
+        s = copy.deepcopy(FLOWING)
+        s[1]["voiceover"] = "Tencent says " + s[1]["voiceover"]
+        s[2]["voiceover"] = "The company says " + s[2]["voiceover"]
+        s[4]["voiceover"] = "According to Tencent, " + s[4]["voiceover"]
+        self.assertFalse(any("says' comes up" in p for p in check_flow(s)))
 
     def test_too_many_teases_flagged(self):
         s = copy.deepcopy(FLOWING)
