@@ -70,6 +70,13 @@ def _facts(script: dict, fc: dict) -> tuple[str, str]:
     return claims, caveats
 
 
+def names_site(text: str, domain: str) -> bool:
+    """True when the post names the site: its domain, or its brand as a whole word
+    ("Techmeme"), but not inside a hashtag or a longer word."""
+    low, brand = text.lower(), domain.lower().split(".")[0]
+    return domain.lower() in low or bool(re.search(rf"(?<![#\w]){re.escape(brand)}(?!\w)", low))
+
+
 def check(posts: dict, cfg: dict) -> list[str]:
     """Code-level checks that don't depend on the model's judgement."""
     problems = []
@@ -97,7 +104,7 @@ def check(posts: dict, cfg: dict) -> list[str]:
         m = CLICKBAIT.search(text)
         if m:
             problems.append(f"{name} post uses clickbait or AI-sounding filler: {m.group(0)!r}.")
-        bad = [a for a in agg if a.split(".")[0] in text.lower()]
+        bad = [a for a in agg if names_site(text, a)]
         if bad:
             problems.append(f"{name} post names an aggregator ({', '.join(bad)}); credit the original outlet.")
     return problems

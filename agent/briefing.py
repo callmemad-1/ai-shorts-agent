@@ -207,8 +207,13 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
             if cfg["tts"]["engine"] == "kokoro":
                 cfg["tts"]["engine"] = "edge"
     if picks:
-        cfg["video"]["template"] = render.ask_template(cfg, b["stories"][picks[0] - 1].get("category", ""))
-        cfg["script"]["pattern"] = scriptwriter.ask_pattern(cfg, b["stories"][picks[0] - 1].get("category", ""))
+        # each story gets its own template and pattern, recommended for its category
+        looks = {}
+        for n in picks:
+            st = b["stories"][n - 1]
+            if len(picks) > 1:
+                print(f"\n── Short {n}: {st['title']}")
+            looks[n] = (render.ask_template(cfg, st.get("category", "")), scriptwriter.ask_pattern(cfg, st.get("category", "")))
         want_photos = False
         if cfg.get("images", {}).get("enabled", True):
             try:
@@ -219,6 +224,7 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
     made = []
     for n in picks:
         st, fc = b["stories"][n - 1], b["checks"][n - 1]
+        cfg["video"]["template"], cfg["script"]["pattern"] = looks[n]
         log(f"Making Short {n}: {st['title']}")
         try:
             made.append(generate(claude, cfg, st, fc, out / topic_slug(st["title"]), today))

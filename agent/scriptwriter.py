@@ -86,6 +86,13 @@ NUMBER_WORDS = ("two three four five six seven eight nine ten eleven twelve thir
 MAX_SENTENCE_WORDS = 18
 
 
+# capitalised words that come before a real number, not a product name ("In 2027", "May 5")
+NOT_NAMES = set("in by on at since until from to for about around over under nearly almost just only "
+                "and but so the of after before between up down roughly some its it's this that "
+                "january february march april may june july august september october november december "
+                "jan feb mar apr jun jul aug sep sept oct nov dec".split())
+
+
 def spoken_numbers(text: str) -> list[str]:
     """Number phrases a listener has to hold in their head ("twenty-three percent",
     "about five point three", "2027"). 'one' alone is skipped: it's usually 'one lawmaker'."""
@@ -94,7 +101,9 @@ def spoken_numbers(text: str) -> list[str]:
     for i, tok in enumerate(raw):
         w = tok.lower()
         parts = w.strip(".,").split("-")
-        named = any(c.isdigit() for c in w) and i > 0 and raw[i - 1][:1].isupper() and not cur  # "Hut 8", "GPT 5"
+        prev = raw[i - 1].strip(".,").lower() if i > 0 else ""
+        named = (any(c.isdigit() for c in w) and i > 0 and raw[i - 1][:1].isupper() and not cur
+                 and prev not in NOT_NAMES)  # "Hut 8", "GPT 5" - but not "In 2027" or "November 4"
         is_num = not named and (any(c.isdigit() for c in w) or all(p in NUMBER_WORDS or p == "point" or (p == "one" and cur) for p in parts if p))
         if is_num:
             cur.append(w)

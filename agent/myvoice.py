@@ -18,6 +18,7 @@ import os
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from .utils import log
@@ -332,6 +333,12 @@ def record_all(script: dict, cfg: dict, outdir: Path, reuse_takes: bool = False)
         if reuse and reuse_takes:
             _clean(src, wav, enhance)
             dur = _duration(wav)
+            if _loudest_db(wav) < -40:
+                if not sys.stdin.isatty():
+                    raise RuntimeError(f"Kept take {src.name} is silent; re-record scene {sid} at the keyboard.")
+                print(f"   ✗ The kept take {src.name} is silent. Let's record it again.")
+                reuse = False
+        if reuse and reuse_takes:
             words, ratio, _, missing = align(text, wav, dur)
             words, dur = trim_to_line(wav, words, ratio, dur)
             print(f"   reused {src.name} · {dur:.1f}s · {ratio:.0%} of words matched")

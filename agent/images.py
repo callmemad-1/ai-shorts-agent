@@ -179,7 +179,6 @@ def choose(script_path: Path, cfg: dict, claude=None, auto: bool = False) -> dic
         ideas.insert(0, {"scene_id": hook["id"], "query": (hook.get("on_screen") or {}).get("headline", ""), "why": "the hook"})
     press = [x for u in primary_pages(script, cfg) if (x := og_image(u))]
     by_id = {s["id"]: s for s in script["scenes"]}
-    credits = []
     for idea in ideas:
         sc = by_id.get(idea["scene_id"])
         if not sc or sc.get("image"):
@@ -190,15 +189,20 @@ def choose(script_path: Path, cfg: dict, claude=None, auto: bool = False) -> dic
         if not opts:
             print("   No safely licensed images found; skipping.")
             continue
-        thumbs = []
-        for k, o in enumerate(opts, 1):
-            t = folder / f"scene{sc['id']:02d}_option{k}.jpg"
+        thumbs, shown = [], []  # only options you can actually see are offered, numbered as shown
+        for o in opts:
+            t = folder / f"scene{sc['id']:02d}_option{len(shown) + 1}.jpg"
             try:
                 t.write_bytes(_get(o["thumb"]))
-                thumbs.append(t)
             except Exception:  # noqa: BLE001
                 continue
-            print(f"   {k}. {o['title'][:60]}  ·  {o['credit']}")
+            thumbs.append(t)
+            shown.append(o)
+            print(f"   {len(shown)}. {o['title'][:60]}  ·  {o['credit']}")
+        if not shown:
+            print("   Couldn't load any previews; skipping.")
+            continue
+        opts = shown
         if auto:
             pick = ""
         else:
@@ -221,7 +225,6 @@ def choose(script_path: Path, cfg: dict, claude=None, auto: bool = False) -> dic
         if not chosen:
             continue
         sc["image"], sc["images"] = chosen[0], chosen  # "image" = the first, for one-photo layouts
-        credits += chosen
         print(f"   ✓ Using {len(chosen)} photo{'s' if len(chosen) > 1 else ''}"
               + (" (shown as a slideshow)" if len(chosen) > 1 else "") + ": " + "; ".join(c["credit"] for c in chosen))
     for t in folder.glob("scene*_option*.jpg"):

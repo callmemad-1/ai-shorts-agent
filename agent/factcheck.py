@@ -105,7 +105,10 @@ def enforce_rules(fc: dict, cfg: dict | None = None, story: dict | None = None) 
             c["note"] = (c.get("note", "") + f" [downgraded: {why}]").strip()
         if ok:
             usable.append(c)
-    headline = fc.get("claims", [{}])[0] if fc.get("claims") else {}
+    # the headline is the story's first key claim, matched by id: don't trust the reply's order
+    claims = fc.get("claims") or []
+    head_id = ((story or {}).get("key_claims") or [{}])[0].get("id")
+    headline = next((c for c in claims if head_id and c.get("id") == head_id), claims[0] if claims else {})
     fc["usable_claims"] = usable
     fc["publishable"] = bool(
         fc.get("overall") == "publishable"

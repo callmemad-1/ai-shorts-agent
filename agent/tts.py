@@ -132,6 +132,8 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
     engines = [cfg["tts"]["engine"]] if cfg["tts"]["engine"] != "mine" else []
     if cfg["tts"].get("fallback_engine") and cfg["tts"]["fallback_engine"] not in engines:
         engines.append(cfg["tts"]["fallback_engine"])
+    if "edge" not in engines:  # always end on the online voice: it needs no model files
+        engines.append("edge")
 
     last_err = None
     for engine in engines:
