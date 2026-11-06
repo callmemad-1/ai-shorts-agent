@@ -169,6 +169,21 @@ story's category (Enter keeps `script.pattern`, `--pattern NAME` skips the quest
 - `explainer` – hook question → 2–4 steps → example (+ at most 1 stat) → reality check →
   outro. Best for "how does X work" and tool launches.
 
+**How a script is written so it sounds human, not like cuts and pieces:**
+
+1. The story is first written as **one paragraph**, the way you'd tell a friend, and
+   only then split into scenes, so the scenes join back into one flowing story.
+2. Code checks for choppy writing: mostly very short sentences, the same phrase in 3+
+   scenes, lists of three or more features, more than 2 teases, or a tease ("here's
+   the catch") that isn't paid off right after.
+3. A second model **listens** to the joined voiceover and says where a 14-year-old
+   would get lost or where scenes don't connect. The whole script is rewritten, not
+   patched sentence by sentence.
+4. Before recording, you see the script **as one paragraph**: press Enter to approve,
+   or type a note ("simpler", "less dramatic", "explain the weights part") and it's
+   rewritten, re-checked and shown again. Turn this off with `script.approve: false`.
+   Scheduled runs skip it.
+
 The order and scene types are enforced in code (`agent/scriptwriter.py`). Lines are
 checked for speakability too: at most 18 words per sentence and 3 spoken numbers per
 Short, and each scene carries reading cues (`|` pause, `*word*` stress, how to start
@@ -254,7 +269,7 @@ assets/fonts/           Inter (SIL Open Font License 1.1)
 ## Tests
 
 The code-level checks (source tiers, publishable rule, script structure, speakability,
-social post rules) have tests that need no network or API key:
+flow, social post rules) have tests that need no network or API key:
 
 ```bash
 .venv/bin/python -m unittest discover tests

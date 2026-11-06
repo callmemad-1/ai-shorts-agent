@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+import textwrap
 
 from . import prompts
 from .llm import Claude
@@ -155,6 +157,67 @@ AI_FILLER = re.compile(r"\b(in today's fast[- ]paced world|let's dive in|dive in
                        r"it's important to note|in conclusion|buckle up|revolutioni[sz]e|unprecedented|the future is here)\b", re.I)
 
 
+# ---------------------------------------------------------------- flow
+TEASE = re.compile(r"\b(here's the (catch|thing|twist|kicker)|but here's|here's why|it gets (weirder|stranger|worse|better)|"
+                   r"then it got|wait\.|guess what)", re.I)
+# "a, b, c and d": three or more short items in a row
+_ITEM = r"[\w'’-]+(?: [\w'’-]+){0,3}"
+FEATURE_LIST = re.compile(rf"\b(?:{_ITEM}, )+{_ITEM},? (?:and|or) {_ITEM}", re.I)
+STOPWORDS = set("a an the and or but so to of in on at for with it its it's is are was be this that you your "
+                "they them their there here what how why can will just not no yes we i our".split())
+CHOPPY_WORDS, CHOPPY_SHARE = 7, 0.5
+
+
+def sentences(text: str) -> list[str]:
+    return [x for x in re.split(r"(?<=[.!?])\s+", text.strip()) if x]
+
+
+def check_flow(scenes: list[dict]) -> list[str]:
+    """Code-level signs that a script reads as cuts and pieces instead of one story."""
+    problems = []
+    body = [s for s in scenes if s.get("type") != "outro"]
+    sents = [x for s in body for x in sentences(s.get("voiceover", ""))]
+    short = [x for x in sents if len(x.split()) < CHOPPY_WORDS]
+    if len(sents) >= 6 and len(short) / len(sents) > CHOPPY_SHARE:
+        problems.append(f"{len(short)} of {len(sents)} sentences are under {CHOPPY_WORDS} words, so it sounds choppy. "
+                        "Join related ideas into flowing sentences (8-16 words) and keep short ones for punch.")
+    # the same phrase in three or more scenes = repeating the point
+    seen: dict[str, set] = {}
+    for s in body:
+        words = re.findall(r"[a-z0-9'’-]+", s.get("voiceover", "").lower())
+        for i in range(len(words) - 2):
+            gram = words[i:i + 3]
+            if all(w in STOPWORDS for w in gram):
+                continue
+            seen.setdefault(" ".join(gram), set()).add(s.get("id"))
+    reps = sorted(g for g, ids in seen.items() if len(ids) >= 3)
+    if reps:
+        problems.append(f"The phrase {reps[0]!r} comes up in {len(seen[reps[0]])} scenes; say the main point at most "
+                        "twice (hook and outro) and make every other scene add something new.")
+    for s in scenes:
+        m = FEATURE_LIST.search(s.get("voiceover", ""))
+        if m and not re.search(r"\d", m.group(0)):
+            problems.append(f"Scene {s.get('id')} lists three or more things in a row ({m.group(0)[:60]!r}). "
+                            "Pick the one that matters most to a normal person and explain it.")
+    teases = [(i, m.group(0)) for i, s in enumerate(body) for m in TEASE.finditer(s.get("voiceover", ""))]
+    if len(teases) > 2:
+        problems.append(f"{len(teases)} teases ({', '.join(t for _, t in teases)}); keep it to 2 at most.")
+    for a, b in zip(body, body[1:]):
+        end = sentences(a.get("voiceover", ""))
+        if end and TEASE.search(end[-1]) and b.get("type") == "example":
+            problems.append(f"Scene {a.get('id')} ends on {end[-1]!r} but the next scene is the comparison, not the "
+                            "payoff. Deliver the catch right after teasing it.")
+    if body:
+        last = sentences(body[-1].get("voiceover", ""))
+        if last and TEASE.search(last[-1]):
+            problems.append(f"Scene {body[-1].get('id')} ends on a tease ({last[-1]!r}) with no payoff after it.")
+    return problems
+
+
+def joined(script: dict) -> str:
+    return " ".join(s.get("voiceover", "").strip() for s in script.get("scenes", []))
+
+
 def check_structure(types: list[str], pattern: str) -> list[str]:
     """Each pattern has its own scene types and order."""
     problems = []
@@ -208,6 +271,7 @@ def validate(script: dict, usable_ids: set[str], cfg: dict, facts: str = "") -> 
     problems += check_structure(types, pattern)
     problems += check_delivery(scenes)
     problems += check_speakability(scenes, cfg["script"].get("max_spoken_numbers", 3))
+    problems += check_flow(scenes)
     for s in scenes:
         if s.get("type") == "verify" and not 2 <= len((s.get("on_screen") or {}).get("bullets") or []) <= 3:
             problems.append(f"Scene {s.get('id')}: the reality check needs 2-3 bullets (the screen shows at most 3).")
@@ -257,6 +321,28 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
     model = cfg["models"]["script"]
     pattern = sc.get("pattern", "story") if sc.get("pattern", "story") in prompts.PATTERNS else "story"
 
+    ctx = {"usable_ids": usable_ids, "claims": claims_txt, "caveats": caveats_txt, "pattern": pattern, "model": model}
+
+    log(f"Drafting the story as one paragraph ({pattern} pattern)...")
+    draft, _ = claude.ask_json(
+        model, prompts.SCRIPT_SYSTEM,
+        prompts.DRAFT_USER.format(words_min=sc["words_min"], words_max=sc["words_max"], seconds=sc["target_seconds"],
+                                  title=story["title"], claims=claims_txt, caveats=caveats_txt,
+                                  shape=prompts.PATTERNS[pattern]["shape"]),
+        search=False,
+    )
+    paragraph = (draft.get("paragraph") or "").strip()
+    n = len(paragraph.split())
+    if paragraph and not sc["words_min"] <= n <= sc["words_max"]:
+        log(f"Draft is {n} words; fitting it to {sc['words_min']}-{sc['words_max']}...")
+        fixed, _ = claude.ask_json(
+            model, prompts.SCRIPT_SYSTEM,
+            f"This paragraph is {n} words. Rewrite it to {sc['words_min']}-{sc['words_max']} words, keeping it one "
+            f"flowing story with the same facts (no new ones). Cut the least important detail first.\n\n{paragraph}\n\n"
+            'Return one ```json block: {"paragraph": "..."}',
+            search=False,
+        )
+        paragraph = (fixed.get("paragraph") or paragraph).strip()
     user = prompts.SCRIPT_USER.format(
         words_min=sc["words_min"],
         words_max=sc["words_max"],
@@ -265,45 +351,14 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
         claims=claims_txt,
         caveats=caveats_txt,
         pattern=prompts.PATTERNS[pattern]["rules"],
+        draft=paragraph or "(no draft: write the scenes directly, as one flowing story)",
     )
-    log(f"Writing script ({pattern} pattern)...")
+    log("Splitting it into scenes...")
     script, _ = claude.ask_json(model, prompts.SCRIPT_SYSTEM, user, search=False)
     script["pattern"] = pattern
-
-    for round_ in range(3):
-        issues = [{"problem": p} for p in validate(script, usable_ids, cfg, claims_txt + "\n" + caveats_txt)]
-        audit, _ = claude.ask_json(
-            cfg["models"]["factcheck"],
-            prompts.AUDIT_SYSTEM,
-            prompts.AUDIT_USER.format(
-                claims=claims_txt,
-                caveats=caveats_txt,
-                titles=json.dumps({"title": script.get("title"), "youtube_title": script.get("youtube_title")}),
-                scenes=json.dumps(
-                    [{"id": s["id"], "voiceover": s["voiceover"], "on_screen": s.get("on_screen")} for s in script["scenes"]],
-                    indent=1,
-                ),
-            ),
-            search=False,
-        )
-        issues += audit.get("issues", [])
-        if not issues:
-            log(f"Script passed audit ({word_count(script)} words).")
-            break
-        log(f"Audit round {round_ + 1}: {len(issues)} issue(s); revising")
-        script, _ = claude.ask_json(
-            model,
-            prompts.SCRIPT_SYSTEM,
-            prompts.REVISE_USER.format(issues=json.dumps(issues, indent=1), script=json.dumps(script, indent=1))
-            + "\n\nThe pattern to follow:\n" + prompts.PATTERNS[pattern]["rules"],
-            search=False,
-        )
-        script["pattern"] = pattern
-    else:
-        remaining = validate(script, usable_ids, cfg, claims_txt + "\n" + caveats_txt)
-        if any("unverified" in p or "not in the fact-checked" in p for p in remaining):
-            raise RuntimeError(f"Script still uses unverified claims after revisions: {remaining}")
-        log(f"Proceeding with minor issues: {remaining}")
+    script = polish(claude, cfg, script, ctx)
+    if sys.stdin.isatty() and sc.get("approve", True):
+        script = approve(claude, cfg, script, ctx)
 
     # attach sources for the on-screen source line and description
     evidence = [e for c in usable for e in c.get("evidence", [])]
@@ -326,6 +381,109 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
             os_["headline"] = re.sub(r"^\s*step\s*\d+\s*[:.\-–]\s*", "", os_["headline"], flags=re.I)
     script["claims"] = usable
     return script
+
+
+def listen(claude: Claude, cfg: dict, script: dict) -> list[dict]:
+    """The read-aloud review: a second model hears the joined voiceover and says where it
+    stops sounding like one person telling one story."""
+    text = "\n".join(f"[{s['id']}] {s.get('voiceover', '')}" for s in script.get("scenes", []))
+    try:
+        out, _ = claude.ask_json(cfg["models"]["factcheck"], prompts.FLOW_SYSTEM, prompts.FLOW_USER.format(text=text),
+                                 search=False)
+    except Exception as e:  # noqa: BLE001 - the review helps, but the facts audit is what's required
+        log(f"Read-aloud review skipped ({e})")
+        return []
+    if out.get("ok") and not out.get("problems"):
+        return []
+    return [{**x, "problem": "Flow: " + str(x.get("problem", ""))} for x in out.get("problems", []) if isinstance(x, dict)]
+
+
+def audit_facts(claude: Claude, cfg: dict, script: dict, ctx: dict) -> list[dict]:
+    audit, _ = claude.ask_json(
+        cfg["models"]["factcheck"],
+        prompts.AUDIT_SYSTEM,
+        prompts.AUDIT_USER.format(
+            claims=ctx["claims"],
+            caveats=ctx["caveats"],
+            titles=json.dumps({"title": script.get("title"), "youtube_title": script.get("youtube_title")}),
+            scenes=json.dumps(
+                [{"id": s["id"], "voiceover": s["voiceover"], "on_screen": s.get("on_screen")} for s in script["scenes"]],
+                indent=1,
+            ),
+        ),
+        search=False,
+    )
+    return [x for x in audit.get("issues", []) if isinstance(x, dict)]
+
+
+def polish(claude: Claude, cfg: dict, script: dict, ctx: dict, seed: list[dict] | None = None, rounds: int = 3) -> dict:
+    """Code checks + facts audit + read-aloud review, revising the whole script until it passes."""
+    pattern, facts = ctx["pattern"], ctx["claims"] + "\n" + ctx["caveats"]
+    seed = list(seed or [])
+    for round_ in range(rounds):
+        issues = seed + [{"problem": p} for p in validate(script, ctx["usable_ids"], cfg, facts)]
+        seed = []  # a producer's note is applied once
+        issues += audit_facts(claude, cfg, script, ctx)
+        if round_ < rounds - 1:  # the last revision is about facts only, so it can be re-audited cleanly
+            issues += listen(claude, cfg, script)
+        if not issues:
+            log(f"Script passed audit and read-aloud review ({word_count(script)} words).")
+            return script
+        log(f"Audit round {round_ + 1}: {len(issues)} issue(s); revising")
+        script, _ = claude.ask_json(
+            ctx["model"],
+            prompts.SCRIPT_SYSTEM,
+            prompts.REVISE_USER.format(issues=json.dumps(issues, indent=1), script=json.dumps(script, indent=1))
+            + f"\n\nLength: the voiceover is {word_count(script)} words now and must end up "
+            f"{cfg['script']['words_min']}-{cfg['script']['words_max']} words. Every fix that adds words must cut "
+            "the same number elsewhere: drop the least important detail, not the explanation."
+            + "\n\nThe pattern to follow:\n" + prompts.PATTERNS[pattern]["rules"],
+            search=False,
+        )
+        script["pattern"] = pattern
+    remaining = validate(script, ctx["usable_ids"], cfg, facts)
+    if any("unverified" in p or "not in the fact-checked" in p for p in remaining):
+        raise RuntimeError(f"Script still uses unverified claims after revisions: {remaining}")
+    # the last revision was never audited: check its facts once more before anyone hears it
+    left = audit_facts(claude, cfg, script, ctx)
+    if left:
+        log(f"Last revision has {len(left)} fact issue(s); one more facts-only fix")
+        script, _ = claude.ask_json(
+            ctx["model"], prompts.SCRIPT_SYSTEM,
+            prompts.REVISE_USER.format(issues=json.dumps(left, indent=1), script=json.dumps(script, indent=1))
+            + "\n\nFix only these fact issues. Change as few words as possible; keep the length and the flow."
+            + "\n\nThe pattern to follow:\n" + prompts.PATTERNS[pattern]["rules"],
+            search=False,
+        )
+        script["pattern"] = pattern
+        left = audit_facts(claude, cfg, script, ctx)
+        remaining = validate(script, ctx["usable_ids"], cfg, facts)
+        if any("unverified" in p or "not in the fact-checked" in p for p in remaining):
+            raise RuntimeError(f"Script still uses unverified claims after revisions: {remaining}")
+    script["audit_warnings"] = [f"Scene {x.get('scene_id')}: {x.get('problem')}" for x in left]
+    for w in script["audit_warnings"]:
+        log(f"⚠ Still flagged by the fact audit - check before recording: {w}")
+    log(f"Proceeding with minor issues: {remaining}")
+    return script
+
+
+def approve(claude: Claude, cfg: dict, script: dict, ctx: dict) -> dict:
+    """Show the whole voiceover as one paragraph, the way it will be heard, before recording.
+    Enter approves; anything typed is a note for a rewrite ("simpler", "explain the weights")."""
+    while True:
+        print("\n── The script, as it will be heard " + "─" * 30)
+        print(textwrap.fill(joined(script), 88))
+        print(f"   ({word_count(script)} words)")
+        for w in script.get("audit_warnings", []):
+            print(f"   ⚠ Fact audit: {w}")
+        try:
+            note = input("Enter = approve · or type what to change (e.g. simpler, less dramatic): ").strip()
+        except EOFError:
+            return script
+        if not note:
+            return script
+        log(f"Rewriting with your note: {note}")
+        script = polish(claude, cfg, script, ctx, seed=[{"problem": f"Producer's note - apply it to the whole script: {note}"}])
 
 
 def _outlet(name: str) -> str:

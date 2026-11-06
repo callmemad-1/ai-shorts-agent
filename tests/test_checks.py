@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agent.factcheck import enforce_rules, evidence_ok, source_tier  # noqa: E402
-from agent.scriptwriter import check_speakability, check_structure, spoken_numbers  # noqa: E402
+from agent.scriptwriter import check_flow, check_speakability, check_structure, spoken_numbers  # noqa: E402
 from agent.social import check as social_check, names_site  # noqa: E402
 
 CFG = json.loads((ROOT / "config.json").read_text())
@@ -156,6 +156,57 @@ class Structure(unittest.TestCase):
 
     def test_explainer_rejects_story_types(self):
         self.assertTrue(check_structure(["hook", "twist", "step", "step", "example", "verify", "outro"], "explainer"))
+
+
+def scenes(*lines, types=("hook", "setup", "twist", "example", "stakes", "verify", "outro")):
+    return [{"id": i + 1, "type": t, "voiceover": v} for i, (t, v) in enumerate(zip(types, lines))]
+
+
+FLOWING = scenes(
+    "Tencent just announced a new AI called Hy4, and it's being pitched as open-source. But you can't download it yet.",
+    "Hy4 is a large language model, the kind of AI behind chatbots, and it's the full version of an August preview.",
+    "It's picked up two new skills. It can understand images now, and for the first time it can use a computer.",
+    "Here's the catch, though. Open-source means anyone can download the files and run them, and those aren't out yet.",
+    "Tencent says they're coming in the next few days. So right now, open is a promise, not something you can check.",
+    "Same with better: that's Tencent's own testing, and nobody outside has checked it yet.",
+    "If those files land this week, the story changes. Follow for daily AI news.",
+)
+
+
+class Flow(unittest.TestCase):
+    def test_flowing_script_passes(self):
+        self.assertEqual(check_flow(FLOWING), [])
+
+    def test_choppy_script_flagged(self):
+        choppy = scenes("Big news. Tencent has Hy4.", "It's an AI. It chats. It's new.", "It sees images. It uses computers.",
+                        "Think of a menu. Kitchen closed.", "So it's a promise. Not a fact.", "Self-reported. Unchecked.",
+                        "Follow for daily AI news.")
+        self.assertTrue(any("choppy" in p for p in check_flow(choppy)))
+
+    def test_feature_list_flagged(self):
+        s = copy.deepcopy(FLOWING)
+        s[2]["voiceover"] = "Tencent says it's better at instructions, long documents, reasoning and multi-step tasks."
+        self.assertTrue(any("three or more things" in p for p in check_flow(s)))
+
+    def test_clause_commas_are_not_a_list(self):
+        self.assertFalse(any("three or more" in p for p in check_flow(FLOWING)))
+
+    def test_tease_before_comparison_flagged(self):
+        s = copy.deepcopy(FLOWING)
+        s[2]["voiceover"] += " But here's the catch."
+        self.assertTrue(any("payoff" in p for p in check_flow(s)))
+
+    def test_repeated_point_flagged(self):
+        s = copy.deepcopy(FLOWING)
+        for i in (1, 3, 4):
+            s[i]["voiceover"] += " It isn't open-source yet."
+        self.assertTrue(any("comes up in" in p for p in check_flow(s)))
+
+    def test_too_many_teases_flagged(self):
+        s = copy.deepcopy(FLOWING)
+        s[1]["voiceover"] += " Here's why that matters."
+        s[4]["voiceover"] = "But here's the thing. " + s[4]["voiceover"]
+        self.assertTrue(any("teases" in p for p in check_flow(s)))
 
 
 def good_posts():

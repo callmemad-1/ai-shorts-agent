@@ -113,21 +113,34 @@ new facts.
 
 Follow the PATTERN given with each request (its arc and its scene types).
 
-Retention:
-- One idea per scene. If a scene needs two ideas, split it.
-- Use 2-3 bridges that pull the viewer into the next scene, at the scene changes
-  where the story turns (e.g. "But here's the thing.", "Then it got stranger.", "And
-  it's speeding up.", "So what does that mean for you?"). At most ONE may be a
-  question; never end every scene with a bridge, and never repeat one.
-- Don't restate the same point in different words across scenes; every scene must
-  add something new.
+It must flow as ONE story, not a list of facts:
+- Read all the voiceovers in a row: they must sound like one person telling one story
+  in one breath of thought, not separate announcements.
+- Each scene picks up where the one before left off, the way people actually talk.
+  Use a link word only when it's true: "So" and "Which means" for a result, "That's
+  because" for a reason, "But" for a contrast. If no link word fits, just start
+  plainly ("Hy4 is the finished version...") - a wrong link is worse than none. Never
+  use the same link twice.
+- A tease ("Here's the catch.") is only allowed if the very next sentence delivers
+  it. At most 2 teases per script, and never a tease with nothing after it.
+- Each scene adds something new. Say the main point at most twice: once in the hook,
+  once in the outro. Don't repeat it in between.
 - Concrete, visual words ("Search goes dark") over abstract ones ("functionality
   will be unavailable").
 - Sound-off test: each on-screen headline must make the scene's point on its own.
 
+Make it easy to understand - write for a smart 14-year-old who has never heard of
+the company:
+- Never copy a claim's wording. Say what it means in your own everyday words.
+- Never list three or more features, specs or names in a row. Pick the one that
+  matters most to a normal person and explain it; leave the rest out.
+- Every technical word gets a plain explanation right away, or is replaced by one.
+- An everyday comparison must say why it fits: "It's like X, because Y."
+
 Style - talk like you're explaining it to a friend over coffee:
 - Plain, everyday English. Contractions (it's, they're, here's). Talk to "you".
-- Short sentences and common words: "buy" not "acquire", "use" not "leverage",
+- Clear sentences, mostly 8-16 words, with an occasional short one for punch. Common
+  words: "buy" not "acquire", "use" not "leverage",
   "rules" not "regulatory framework", "money" not "capital".
 - No newsroom phrases ("in a move that", "amid", "slated to", "according to sources
   familiar"). No jargon; if a technical word is unavoidable, explain it in 3 words
@@ -145,8 +158,8 @@ Sound like a real person telling a friend, not an AI reading the news:
   size must match the facts' real weight (no fake drama on a small story).
 - "I" only for a genuine reaction ("Honestly, I didn't see that coming."), never for a
   claim or an opinion on who's right.
-- Vary the rhythm: a longer sentence, then a short one. Fragments are fine. ("No law.
-  Just fear.")
+- Vary the rhythm: a longer sentence, then a short one. A fragment is fine once or
+  twice for effect ("No law. Just fear."), never as the normal way of talking.
 - Never use AI-sounding filler: "in today's fast-paced world", "let's dive in", "dive
   into", "delve", "game-changer", "landscape", "it's important to note", "in conclusion",
   "buckle up", "revolutionize", "unprecedented", "the future is here".
@@ -168,6 +181,26 @@ Titles (youtube_title):
   believe", ALL CAPS words or claims the fact-checked list can't back.
 """
 
+DRAFT_USER = """Before any scenes, write this Short as ONE paragraph of {words_min}-{words_max}
+words (about {seconds} seconds spoken): how you'd tell a friend this story over coffee.
+
+Story: {title}
+Fact-checked claims (use only these):
+{claims}
+Caveats you may use:
+{caveats}
+
+Follow this shape (it becomes the scenes later):
+{shape}
+
+The paragraph must flow: every sentence follows from the one before, the catch is
+explained right after it's teased, the main point is said at most twice (start and
+end), no lists of three or more things, no jargon left unexplained. Use only the
+claims; don't add facts. End with "Follow for daily AI news."
+
+Return one ```json block: {{"paragraph": "..."}}
+"""
+
 SCRIPT_USER = """Write a {words_min}-{words_max} word script (about {seconds} seconds spoken).
 
 Story: {title}
@@ -177,6 +210,12 @@ Caveats you may use:
 {caveats}
 
 {pattern}
+
+The story is already written as one paragraph. Split it into the scenes at its natural
+pauses and keep its words: change a few only where a scene rule needs it (hook length,
+sentence length, claim ids). Joined back together, the voiceovers must read as this
+paragraph:
+<<<{draft}>>>
 
 Animated graphics: "setup", "twist", "step", "example" and "stakes" scenes may add
 on_screen.visual. Use 2-3 per script, where a picture beats words; the "example" scene
@@ -270,12 +309,38 @@ Return one ```json block:
 
 REVISE_USER = """Revise the script to fix these issues. Keep the same JSON structure,
 story-arc scene order and length rules. Use only the fact-checked claims.
+Rewrite the voiceover as a whole so it still reads as one flowing story when the
+scenes are joined: don't patch single sentences in a way that breaks the links
+between scenes. Keep each scene's "read" in step with its voiceover (same words).
 
 Issues:
 {issues}
 
 Current script:
 {script}
+"""
+
+FLOW_SYSTEM = """You are a listener, not a fact-checker. You hear a YouTube Short's voiceover read
+aloud once, start to finish, and say honestly where it stops sounding like one person
+telling one story. Judge only how it sounds and whether it's easy to follow; never
+suggest adding facts."""
+
+FLOW_USER = """The voiceover, scene by scene ([n] = scene id):
+{text}
+
+Answer as the listener:
+1. Would a smart 14-year-old who has never heard of this company follow it? Where
+   would they get lost (an unexplained word, a list of features, a missing "why")?
+2. Does it sound like a person talking, or like separate announcements stitched
+   together? Name each place where one scene doesn't connect to the one before.
+3. Is any tease ("here's the catch") left without a payoff right after it?
+4. Is the main point repeated more than twice?
+Only list the 4 most important real problems. Every fix must keep the script the same
+length or shorter: if something needs explaining, say what to cut to make room. If it
+flows, return ok true with no problems.
+
+Return one ```json block:
+{{"ok": true, "problems": [{{"scene_id": 3, "problem": "...", "fix": "how to say it instead, no new facts"}}]}}
 """
 
 RECOMMEND_SYSTEM = """You are the executive producer of a fact-checked AI-news YouTube Shorts
@@ -301,6 +366,9 @@ Give a note for every story.
 PATTERNS = {
     "story": {
         "name": "Story arc - hook, setup, twist, why it matters, reality check",
+        "shape": ("the most surprising fact plus a catch (first sentence 12 words max) -> who did what -> "
+                  "the twist -> an everyday comparison that makes it click -> why it matters to you -> "
+                  "the honest caveat -> a last line that answers the opening"),
         "rules": """Story arc (every script follows it):
 1. Hook - the first spoken words ARE the hook: the most surprising verified fact, in a
    first sentence of at most 12 words (under 2.5 seconds), followed by an open loop
@@ -320,11 +388,15 @@ PATTERNS = {
    you also take the magazines."). It explains a verified fact; it never adds one.
 4. Stakes - why it matters to a normal person. Framing only, no new facts or forecasts.
 5. Reality check - the honest caveat beat (type "verify") so viewers trust the channel.
+   Say it the way you'd tell a friend ("That's Tencent's own testing. Nobody outside
+   has checked it yet."), never like an editor's note.
 6. Outro - a payoff line that answers the hook's open loop, ideally echoing the hook's
    words so the video loops cleanly back into its first line, then
    "Follow for daily AI news."
 
-Scenes: 6-8 scenes in story-arc order. Each scene is 1-2 short sentences of voiceover.
+Scenes: 6-8 scenes in story-arc order. Each scene is 1-2 sentences of voiceover that
+pick up where the scene before left off. If two twists are really one thought, use one
+twist scene.
 Scene types:
 - "hook": first scene. on_screen.headline (max 5 words), on_screen.sub (max 7 words)
 - "setup": exactly one, right after the hook. on_screen.headline (max 5 words),
@@ -347,6 +419,9 @@ Scene types:
     },
     "explainer": {
         "name": "Explainer / Q&A - the viewer's question, answered step by step",
+        "shape": ("the question a curious viewer would ask (in the first 12 words) -> 2-4 steps that answer it "
+                  "(\"First... Then... And here's the key part...\") -> an everyday comparison -> what we still "
+                  "don't know -> the answer in one plain sentence"),
         "rules": """Explainer / Q&A pattern (every script follows it):
 1. Hook - open with the QUESTION a curious viewer would ask, made concrete with the most
    surprising verified fact ("Stocks went up. So why did AI's data-center companies go
@@ -357,11 +432,13 @@ Scene types:
 3. Example - one everyday comparison that makes the hardest step click. It explains a
    verified fact; it never adds one.
 4. Stat - optional: the one number that proves the answer.
-5. Reality check - what we still don't know, or the honest caveat (type "verify").
+5. Reality check - what we still don't know, or the honest caveat (type "verify"),
+   said the way you'd tell a friend, never like an editor's note.
 6. Outro - the answer in one plain sentence that echoes the hook's question, then
    "Follow for daily AI news."
 
-Scenes: 6-8 scenes in this order. Each scene is 1-2 short sentences of voiceover.
+Scenes: 6-8 scenes in this order. Each scene is 1-2 sentences of voiceover that pick
+up where the scene before left off.
 Scene types:
 - "hook": first scene. on_screen.headline = the question (max 6 words, ends with "?"),
   on_screen.sub (max 7 words)

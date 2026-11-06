@@ -25,6 +25,10 @@ from agent.utils import add_history, load_config, load_dotenv, log, read_json, s
 
 def write_script_md(script: dict, fc: dict | None, path: Path) -> None:
     lines = [f"# {script.get('youtube_title') or script.get('title')}", ""]
+    if script.get("audit_warnings"):
+        lines += ["> **Check before recording** - the fact audit still flags:", ""]
+        lines += [f"> - {w}" for w in script["audit_warnings"]] + [""]
+    lines += ["## As it will be heard", "", " ".join(s.get("voiceover", "") for s in script["scenes"]), ""]
     lines += ["## Script", ""]
     for s in script["scenes"]:
         lines.append(f"**{s['id']}. {s['type'].upper()}** — {s['voiceover']}")
