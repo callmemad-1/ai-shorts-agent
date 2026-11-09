@@ -214,34 +214,6 @@ answer for the voice used, tags, language, category, remixing, captions, visibil
 and `posts/captions.srt` to upload under Subtitles (same words and timing as the
 burned-in captions, in the voiceover's language).
 
-## Your cloned voice (no recording)
-
-If you have the local-voice tool (`tts.clone.path`, default `/Users/kaushik/local-voice`),
-pick **My cloned voice** at the voiceover question, or run `--tts clone`. Each scene is
-spoken in your voice by IndexTTS 2.5 on this Mac, free and offline, so scheduled runs
-can use your voice with nobody at the keyboard. About 2.5 minutes per Short.
-
-- **Mood per scene**: from the scene's tone note ("skeptical" → serious, "warm sign-off"
-  → warm), else by scene type (hook excited, stakes and reality check serious, outro warm).
-- `||` beats in the reading cues become real pauses; the pronunciation guide is applied,
-  so "Hy4" is sent as "high four".
-- Every scene is levelled to the same loudness, and Whisper checks it: under 80% of the
-  words heard clearly (`tts.clone.min_match`) and it's generated again, up to 2 times
-  (`tts.clone.retries`), then flagged for you to listen to.
-- Scripts are sized to the clone's own pace (measured on every clone run, kept in
-  `voice_profile.json`; `tts.clone.wpm` until the first run). If one still runs long,
-  it's sped up gently (at most x1.12, pitch kept).
-- Long lines are split into pieces of 20 words at most, because IndexTTS turns long passages
-  into noise. A scene that fails the check is retried in smaller pieces; if it still fails you
-  choose (retry, AI voice for that scene, keep, stop). Unattended runs keep it and mark the
-  Short for review.
-- If local-voice is missing or fails, the run falls back to the AI voice.
-- `posts.md` reminds you to mark the upload as **altered or synthetic content** on YouTube
-  and to turn on Instagram's AI label.
-
-The agent only starts local-voice's own worker (`.venv-index`, `app.index_worker`); it
-doesn't change the tool. Re-record the reference clip in local-voice to change the voice.
-
 ## Voiceover language (English or Tamil)
 
 Before each video you're asked which language the voiceover is in (Enter keeps
@@ -252,9 +224,8 @@ and fact-checked in English. For Tamil:
    said, numbers as words), then a second model translates it back and compares the
    meaning with the English. Differences are fixed once; anything left is flagged in
    `script.md` and before recording.
-2. The voice: your cloned voice through Maya 2 (local-voice; it keeps the delivery of
-   your reference recording, no mood control), or the Tamil Edge voice
-   (`tts.edge_voice_ta`). Recording yourself is English-only for now.
+2. The voice is the Tamil Edge AI voice (`tts.edge_voice_ta`). Recording yourself is
+   English-only for now.
 3. Captions show the Tamil words (timings estimated, since Whisper here only knows
    English). Headlines, numbers and source chips stay in English. Tamil text needs
    `brew install fribidi` (done by `setup_mac.sh`) so the vowel signs are drawn right.
@@ -309,9 +280,7 @@ agent/scriptwriter.py   stage 3 (+ validation and audit loop)
 agent/images.py         free-licence photo search and picker
 agent/tts.py            stage 4 (edge-tts, Kokoro, Edge as last fallback; auto-fits 50-60 s)
 agent/myvoice.py        your own voice: recording, clean-up, Whisper word timings, pace
-agent/clone.py          your cloned voice via the local-voice tool (mood per scene)
 agent/language.py       voiceover language: translation + meaning back-check
-agent/maya_worker.py    runs Maya 2 inside local-voice for Tamil
 agent/briefing.py       interactive mode: fact-check all, briefing, pick stories
 agent/social.py         YouTube / Instagram / LinkedIn posts and carousel
 agent/render.py         stage 5 (classic 9:16 template, captions, parallel scene render)

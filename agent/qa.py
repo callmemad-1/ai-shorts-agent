@@ -9,6 +9,7 @@ from .utils import log
 
 SQUEEZED_WORD_SECONDS = 0.06  # a caption word on screen for less than this can't be read
 MAX_SQUEEZED_SHARE = 0.15
+MIN_WORDS_HEARD = 0.8  # share of the script's words Whisper must hear in the finished video
 LONG_FORM_SECONDS = 120  # longer videos have their own review; the Short rules don't apply
 
 
@@ -40,7 +41,6 @@ def check(script: dict, voice: dict, cfg: dict, mp4: Path) -> dict:
 
     mp4 = Path(mp4)
     problems = template_problems(script, cfg) + caption_problems(voice)
-    problems += [f"Voiceover unclear in {x}" for x in voice.get("flagged", [])]
     dur = _duration(mp4)
     sc, lang = cfg["script"], script.get("language", "en")
     if dur <= LONG_FORM_SECONDS:
@@ -49,7 +49,7 @@ def check(script: dict, voice: dict, cfg: dict, mp4: Path) -> dict:
         if lang == "en":  # listen to the finished file, not the pieces it was built from
             text = " ".join(s.get("voiceover", "") for s in script.get("scenes", []))
             _, ratio, _, missing = align(text, mp4, dur)
-            if ratio < cfg["tts"].get("clone", {}).get("min_match", 0.8):
+            if ratio < MIN_WORDS_HEARD:
                 problems.append(f"Only {ratio:.0%} of the script's words can be heard in the finished video "
                                 f"(missing: {', '.join(missing[:12])}).")
         elif _loudest_db(mp4) < -40:

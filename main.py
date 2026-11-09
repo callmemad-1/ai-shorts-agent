@@ -9,7 +9,6 @@ Usage:
   python main.py --interactive        # research + fact-check all, show briefing, you pick
   python main.py --tts kokoro         # force the offline voice
   python main.py --tts mine           # record the voiceover yourself, scene by scene
-  python main.py --tts clone          # your cloned voice (local-voice tool), no recording
   python main.py --from-script FILE --reuse-takes   # re-process your kept recordings (no re-recording)
 """
 from __future__ import annotations
@@ -83,8 +82,8 @@ def main() -> int:
     ap.add_argument("--story", default=None, help="story id from research.json to use (e.g. s3)")
     ap.add_argument("--interactive", action="store_true", help="show today's fact-checked briefing and let me pick")
     ap.add_argument("--stop-after", choices=["research", "factcheck", "script", "tts"], default=None)
-    ap.add_argument("--tts", choices=["edge", "kokoro", "mine", "clone"], default=None,
-                    help="voiceover: AI voice, 'mine' to record yourself, or 'clone' for your cloned voice")
+    ap.add_argument("--tts", choices=["edge", "kokoro", "mine"], default=None,
+                    help="voiceover: AI voice, or 'mine' to record yourself")
     ap.add_argument("--language", choices=["en", "ta"], default=None,
                     help="voiceover language (the script is fact-checked in English, then translated)")
     ap.add_argument("--reuse-takes", action="store_true", help="with --tts mine: re-process your kept recordings, no prompts")

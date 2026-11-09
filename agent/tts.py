@@ -6,8 +6,6 @@ Engines:
 - "kokoro" : Kokoro-82M ONNX, fully offline and free (model files ~330 MB,
              see README). Word timings are estimated.
 - "mine"   : you read each line into the mic (agent/myvoice.py).
-- "clone"  : your cloned voice from the local-voice tool, with a mood per scene
-             (agent/clone.py). No one needs to be at the keyboard.
 """
 from __future__ import annotations
 
@@ -15,11 +13,13 @@ import asyncio
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from .utils import log, resolve
 
 SR = 24000
+EDGE_SPACING = 0.7  # seconds between lines
 
 
 def _ffprobe_duration(path: Path) -> float:
@@ -68,12 +68,32 @@ async def _edge(text: str, voice: str, rate: str, mp3: Path):
     return words
 
 
+EDGE_WAITS = [2, 4, 8, 16, 30]  # seconds between tries: Microsoft's free service often refuses requests in a row
+
+
+def _edge_with_retries(text: str, voice: str, rate: str, mp3: Path, waits: list[int] = EDGE_WAITS) -> list[dict]:
+    """A refused request ("No audio was received") passes after a short wait, so one bad
+    moment shouldn't lose the whole voiceover. Requests are also spaced out a little."""
+    for attempt in range(len(waits) + 1):
+        try:
+            words = asyncio.run(_edge(text, voice, rate, mp3))
+            if mp3.stat().st_size > 0:
+                time.sleep(EDGE_SPACING)
+                return words
+            error: Exception = RuntimeError("edge-tts returned no audio")
+        except Exception as e:  # noqa: BLE001 - edge-tts raises several types for a refused request
+            error = e
+        mp3.unlink(missing_ok=True)  # never leave an empty file behind
+        if attempt < len(waits):
+            log(f"AI voice refused a line ({str(error)[:60]}); trying again in {waits[attempt]}s")
+            time.sleep(waits[attempt])
+    raise RuntimeError(f"the AI voice failed after {len(waits) + 1} tries: {error}")
+
+
 def synth_edge(text: str, wav: Path, cfg: dict, speed: float):
     mp3 = wav.with_suffix(".mp3")
     rate = f"{round((speed - 1) * 100):+d}%"
-    words = asyncio.run(_edge(text, cfg["tts"]["edge_voice"], rate, mp3))
-    if mp3.stat().st_size == 0:
-        raise RuntimeError("edge-tts returned no audio")
+    words = _edge_with_retries(text, cfg["tts"]["edge_voice"], rate, mp3)
     subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-i", str(mp3), "-ac", "1", "-ar", str(SR), str(wav)], check=True)
     mp3.unlink(missing_ok=True)
     dur = _ffprobe_duration(wav)
@@ -132,29 +152,15 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
     sc, gap = cfg["script"], cfg["tts"]["scene_gap_seconds"]
     lang = script.get("language", "en")
     if cfg["tts"]["engine"] == "mine" and lang != "en":
-        from . import clone as _clone
-
-        cfg = {**cfg, "tts": {**cfg["tts"], "engine": "clone" if _clone.available(cfg) else "edge"}}
-        log(f"Recording yourself is English-only for now; using the {cfg['tts']['engine']} voice for this {lang} Short.")
+        cfg = {**cfg, "tts": {**cfg["tts"], "engine": "edge"}}
+        log(f"Recording yourself is English-only for now; using the AI voice for this {lang} Short.")
     if cfg["tts"]["engine"] == "mine":
         if sys.stdin.isatty() or cfg["tts"].get("reuse_takes"):
             from .myvoice import record_all
 
             return record_all(script, cfg, outdir, reuse_takes=cfg["tts"].get("reuse_takes", False))
         log("Your-voice mode needs you at the keyboard; using the AI voice for this run.")
-    if cfg["tts"]["engine"] == "clone":
-        from . import clone
-
-        if clone.available(cfg):
-            try:
-                return clone.synthesize(script, cfg, outdir)
-            except clone.StopRun:
-                raise  # you chose to stop: don't quietly swap in another voice
-            except Exception as e:  # noqa: BLE001 - never lose the day's Short to the clone
-                log(f"Cloned voice failed ({e}); using the AI voice for this run.")
-        else:
-            log(f"Cloned voice not found at {cfg['tts'].get('clone', {}).get('path')}; using the AI voice for this run.")
-    engines = [cfg["tts"]["engine"]] if cfg["tts"]["engine"] not in ("mine", "clone") else []
+    engines = [cfg["tts"]["engine"]] if cfg["tts"]["engine"] != "mine" else []
     if cfg["tts"].get("fallback_engine") and cfg["tts"]["fallback_engine"] not in engines:
         engines.append(cfg["tts"]["fallback_engine"])
     if "edge" not in engines:  # always end on the online voice: it needs no model files

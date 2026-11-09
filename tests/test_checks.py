@@ -18,7 +18,6 @@ sys.path.insert(0, str(ROOT))
 from agent.factcheck import enforce_rules, evidence_ok, source_tier  # noqa: E402
 from agent.scriptwriter import check_flow, check_speakability, check_structure, spoken_numbers  # noqa: E402
 from agent.social import check as social_check, markdown as posts_md, names_site  # noqa: E402
-from agent.clone import emotion_for, spoken_parts  # noqa: E402
 
 CFG = json.loads((ROOT / "config.json").read_text())
 TIERS = {**CFG["research"]["source_tiers"], "blocked": CFG["research"]["aggregator_domains"]}
@@ -275,41 +274,42 @@ class SocialPosts(unittest.TestCase):
         self.assertTrue(any("YouTube title" in p for p in social_check(posts, CFG)))
 
 
-class ClonedVoice(unittest.TestCase):
-    def test_pauses_split_and_marks_removed(self):
-        scene = {"voiceover": "Tencent says it can use a computer. Here's the catch.",
-                 "read": "Tencent *says* it can use a computer. || Here's the catch."}
-        self.assertEqual(spoken_parts(scene, []), ["Tencent says it can use a computer.", "Here's the catch."])
+class AIVoiceRetries(unittest.TestCase):
+    def test_refused_request_is_retried(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            from unittest import mock
+            from agent import tts
+            calls = iter([RuntimeError("No audio was received"), b"", b"audio"])
 
-    def test_pronunciation_applied_as_whole_word(self):
-        scene = {"voiceover": "Hy4 is out. Hy4x is not."}
-        parts = spoken_parts(scene, [{"word": "Hy4", "say": "HIGH four?"}])
-        self.assertEqual(parts, ["high four is out. Hy4x is not."])
+            async def fake(text, voice, rate, path):
+                r = next(calls)
+                if isinstance(r, Exception):
+                    raise r
+                path.write_bytes(r)
+                return [{"word": text}]
 
-    def test_no_read_uses_voiceover(self):
-        self.assertEqual(spoken_parts({"voiceover": "Plain line."}, []), ["Plain line."])
+            with mock.patch.object(tts, "_edge", fake), mock.patch("time.sleep"):
+                self.assertEqual(tts._edge_with_retries("Hi", "v", "+0%", Path(d) / "a.mp3", waits=[1, 1]), [{"word": "Hi"}])
 
-    def test_tone_note_picks_mood(self):
-        self.assertEqual(emotion_for({"type": "twist", "tone": "Flat, a little skeptical"}), "serious")
-        self.assertEqual(emotion_for({"type": "outro", "tone": "Calm payoff, then warm sign-off"}), "warm")
-
-    def test_scene_type_is_the_fallback(self):
-        self.assertEqual(emotion_for({"type": "hook", "tone": ""}), "excited")
-        self.assertEqual(emotion_for({"type": "verify"}), "serious")
-
-    def test_scripts_sized_to_clone_pace(self):
+    def test_gives_up_and_leaves_no_empty_file(self):
+        import tempfile
         from unittest import mock
-        from agent import myvoice
-        cfg = copy.deepcopy(CFG)
-        cfg["tts"]["engine"] = "clone"
-        cfg["tts"]["clone"]["wpm"] = 120
-        with mock.patch("agent.clone.available", return_value=True), \
-                mock.patch.object(myvoice, "PACE_FILE", ROOT / "tests" / "_no_profile.json"):
-            myvoice.fit_script_to_pace(cfg)
-        speaking = cfg["script"]["target_seconds"] - 8 * cfg["tts"]["scene_gap_seconds"]
-        self.assertEqual(cfg["script"]["words_max"], int(120 * speaking / 60))
-        self.assertEqual(cfg["script"]["words_min"], cfg["script"]["words_max"] - 20)
+        from agent import tts
 
+        async def fake(text, voice, rate, path):
+            path.write_bytes(b"")
+            return []
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(tts, "_edge", fake), mock.patch("time.sleep"):
+            mp3 = Path(d) / "a.mp3"
+            with self.assertRaises(RuntimeError):
+                tts._edge_with_retries("Hi", "v", "+0%", mp3, waits=[1])
+            self.assertFalse(mp3.exists())
+
+
+class CloneMadeShortsDisclosure(unittest.TestCase):
+    """Shorts already made with the (now removed) cloned voice must still be disclosed."""
     def test_disclosure_reminder_only_for_cloned_voice(self):
         posts = good_posts()
         self.assertIn("Altered or synthetic content", posts_md(posts, [], True))
@@ -369,39 +369,6 @@ class WrongVideoGuards(unittest.TestCase):
         script = {"category": "business", "template": "reconstruction", "scenes": []}
         self.assertEqual(resolve_template(cfg, script), "tutorial")
         self.assertEqual((cfg["video"]["template"], script["template"]), ("tutorial", "tutorial"))
-
-    def test_long_line_is_split_for_the_model(self):
-        from agent.clone import speech_pieces
-        read = ("Why did it *drop*? || That's a basket of big stocks. | NBC News says it had its *worst* day since April "
-                "2025, | falling about six point three percent | and wiping out roughly *two point three trillion* dollars.")
-        pieces = speech_pieces({"voiceover": "x", "read": read}, [])
-        self.assertTrue(all(len(t.split()) <= 20 for t, _ in pieces))
-        self.assertEqual(" ".join(t for t, _ in pieces), read.replace("|", "").replace("*", "").replace("  ", " ").replace("  ", " "))
-        self.assertGreater(len(pieces), 2)
-
-    def test_retry_uses_smaller_pieces(self):
-        from agent.clone import speech_pieces
-        scene = {"voiceover": self.NASDAQ_HOOK}
-        self.assertTrue(all(len(t.split()) <= 8 for t, _ in speech_pieces(scene, [], 8)))
-
-    def test_acronym_stays_as_letters(self):
-        from agent.clone import spoken_parts
-        out = spoken_parts({"voiceover": "NBC says Qualcomm fell."},
-                           [{"word": "NBC", "say": "N-B-C"}, {"word": "Qualcomm", "say": "KWAL-kom"}])
-        self.assertEqual(out, ["NBC says kwalkom fell."])
-
-    def test_failed_scene_is_kept_and_flagged_when_unattended(self):
-        from unittest import mock
-        from agent.clone import _ask_failed
-        with mock.patch("sys.stdin.isatty", return_value=False):
-            self.assertEqual(_ask_failed(1, 0.37, ["x"]), "keep")
-
-    def test_padding_trimmed_but_speech_kept(self):
-        import numpy as np
-        from agent.clone import trim_silence
-        sr = 24000
-        a = np.concatenate([np.zeros(sr), np.sin(np.arange(sr) * 0.1).astype("float32") * 0.5, np.zeros(sr)]).astype("float32")
-        self.assertTrue(sr <= trim_silence(a, sr).size < sr * 1.2)
 
     def test_overlong_hook_flagged(self):
         from agent.scriptwriter import check_balance

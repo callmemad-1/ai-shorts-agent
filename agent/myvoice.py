@@ -252,10 +252,9 @@ def trim_to_line(wav: Path, words: list[dict], ratio: float, dur: float):
 PACE_FILE = Path(__file__).resolve().parent.parent / "voice_profile.json"
 
 
-def update_pace(script: dict, clips: list[dict], voice: str = "mine") -> float | None:
+def update_pace(script: dict, clips: list[dict]) -> float | None:
     """Words per minute from this session's takes (first to last word of each line, so
-    leading and trailing silence don't count); kept as an average of the last 5 sessions.
-    voice "mine" = your own recordings (top level of the file), "clone" = your cloned voice."""
+    leading and trailing silence don't count); kept as an average of the last 5 sessions."""
     words = secs = 0.0
     by_id = {c["scene_id"]: c for c in clips}
     for sc in script["scenes"]:
@@ -266,39 +265,25 @@ def update_pace(script: dict, clips: list[dict], voice: str = "mine") -> float |
     if secs < 10:
         return None
     prof = json.loads(PACE_FILE.read_text()) if PACE_FILE.exists() else {"sessions": []}
-    entry = prof if voice == "mine" else prof.setdefault(voice, {"sessions": []})
-    entry["sessions"] = (entry.get("sessions", []) + [round(words / secs * 60, 1)])[-5:]
-    entry["wpm"] = round(sum(entry["sessions"]) / len(entry["sessions"]), 1)
+    prof["sessions"] = (prof.get("sessions", []) + [round(words / secs * 60, 1)])[-5:]
+    prof["wpm"] = round(sum(prof["sessions"]) / len(prof["sessions"]), 1)
     PACE_FILE.write_text(json.dumps(prof, indent=1))
-    return entry["wpm"]
+    return prof["wpm"]
 
 
 def fit_script_to_pace(cfg: dict) -> None:
-    """Size the next script to how fast YOUR voice speaks: your recordings, or your cloned
-    voice (measured on every clone run; tts.clone.wpm until the first one).
+    """Size the next script to how fast YOU speak (only when recording your own voice).
     Room is left for the pauses between scenes and the // beats in the read marks."""
-    engine = cfg["tts"]["engine"]
-    prof = json.loads(PACE_FILE.read_text()) if PACE_FILE.exists() else {}
-    sc = cfg["script"]
-    if engine == "mine":
-        wpm = prof.get("wpm")
-        speaking = sc["target_seconds"] - 8 * cfg["tts"]["scene_gap_seconds"] - 4  # gaps + long pauses
-    elif engine == "clone":
-        from . import clone
-
-        if not clone.available(cfg):
-            return
-        wpm = prof.get("clone", {}).get("wpm") or cfg["tts"].get("clone", {}).get("wpm")
-        # the clone's measured pace already includes its || pauses: only the scene gaps are extra
-        speaking = sc["target_seconds"] - 8 * cfg["tts"]["scene_gap_seconds"]
-    else:
+    if cfg["tts"]["engine"] != "mine" or not PACE_FILE.exists():
         return
+    wpm = json.loads(PACE_FILE.read_text()).get("wpm")
     if not wpm:
         return
+    sc = cfg["script"]
+    speaking = sc["target_seconds"] - 8 * cfg["tts"]["scene_gap_seconds"] - 4  # gaps + long pauses
     sc["words_max"] = max(90, int(wpm * speaking / 60))
     sc["words_min"] = sc["words_max"] - 20
-    who = "your cloned voice's" if engine == "clone" else "your"
-    log(f"Script sized to {who} pace ({wpm:.0f} wpm): {sc['words_min']}-{sc['words_max']} words")
+    log(f"Script sized to your pace ({wpm:.0f} wpm): {sc['words_min']}-{sc['words_max']} words")
 
 
 # ---------------------------------------------------------------- session

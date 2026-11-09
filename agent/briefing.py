@@ -192,15 +192,12 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
 
 def ask_voice(cfg: dict) -> str:
     """Who speaks the voiceover. Enter keeps tts.engine from config."""
-    from . import clone
-
-    have_clone = clone.available(cfg)
     lang = cfg["tts"].get("language", "en")
     options = [("edge", "AI voice (Edge, free)")]
     if lang == "en":  # recording yourself is English-only for now
         options.append(("mine", "Record my own voice now"))
-    if have_clone:
-        options.append(("clone", "My cloned voice (local-voice, no recording)"))
+    if len(options) == 1:  # nothing to choose (Tamil is AI voice only)
+        return options[0][0]
     current = cfg["tts"]["engine"] if cfg["tts"]["engine"] in dict(options) else "edge"
     print("\nVoiceover:")
     for i, (key, label) in enumerate(options, 1):
