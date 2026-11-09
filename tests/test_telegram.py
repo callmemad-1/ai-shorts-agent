@@ -80,11 +80,16 @@ class Pairing(unittest.TestCase):
         self.api = FakeApi()
         self.bot = TelegramBot(self.api, CFG, self.owner)
 
-    def test_wrong_code_gets_no_reply_and_no_access(self):
+    def test_wrong_code_gets_a_hint_but_no_access(self):
         self.bot.handle(text("/start nope", STRANGER, STRANGER))
         self.bot.handle(text("/start", STRANGER, STRANGER))
-        self.assertEqual(self.api.calls, [])
+        self.assertTrue(all("Not paired yet" in t for t in self.api.texts()))
+        self.assertEqual(len(self.api.texts()), 2)
         self.assertFalse(self.owner.exists())
+
+    def test_code_alone_or_in_capitals_pairs(self):
+        self.bot.handle(text(self.bot.pair_code.upper()))
+        self.assertEqual(json.loads(self.owner.read_text())["user_id"], ME)
 
     def test_right_code_pairs_and_file_is_private(self):
         self.bot.handle(text(f"/start {self.bot.pair_code}"))

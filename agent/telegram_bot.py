@@ -154,12 +154,20 @@ class TelegramBot:
             return
         user, chat, text = msg["from"]["id"], msg["chat"]["id"], msg["text"].strip()
         if not self.state.get("user_id"):
-            if text.split() == ["/start", self.pair_code]:
+            words = text.split()
+            if words and words[0].split("@")[0].lower() == "/start":
+                words = words[1:]  # the code may also be sent on its own
+            if len(words) == 1 and words[0].lower() == self.pair_code:
                 self.state.update(user_id=user, chat_id=chat)
                 save_owner(self.state, self.owner_file)
                 self.pair_code = None
                 log("Telegram: paired with your account.")
                 self.say("Paired. Only you can use this bot now.\n\n" + HELP)
+            else:  # Telegram's Start button sends a bare /start: say what's needed instead of silence
+                log("Telegram: got a pairing attempt without the right code.")
+                self.api.call("sendMessage", chat_id=chat,
+                              text="Not paired yet. Send /start followed by the code shown in the window on your Mac, "
+                                   "for example: /start abc123")
             return
         if not self.is_owner(user, chat):
             return
