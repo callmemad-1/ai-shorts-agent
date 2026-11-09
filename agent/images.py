@@ -27,6 +27,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from . import remote
 from .utils import log
 
 UA = "ai-shorts-agent/1.0 (personal YouTube channel tool)"
@@ -205,6 +206,9 @@ def choose(script_path: Path, cfg: dict, claude=None, auto: bool = False) -> dic
         opts = shown
         if auto:
             pick = ""
+        elif remote.active:
+            pick = remote.active.pick_photos(f"Scene {sc['id']}: {sc['voiceover'][:120]}", thumbs,
+                                             [f"{o['title'][:30]} · {o['credit'][:20]}" for o in opts])
         else:
             _show(thumbs)
             pick = input(f"   Pick one or more (e.g. 1 or 1,3) · Enter = skip: ").strip()
@@ -248,7 +252,7 @@ def maybe_add(script_path: Path, cfg: dict, claude=None, asked: bool | None = No
     Skipped with no one at the keyboard, when images.enabled is false, or when the script
     already has photos."""
     script = json.loads(script_path.read_text())
-    if not cfg.get("images", {}).get("enabled", True) or not sys.stdin.isatty():
+    if not cfg.get("images", {}).get("enabled", True) or not (sys.stdin.isatty() or remote.active):
         return script
     share = sum(1 for s in script["scenes"] if s.get("image")) / max(len(script["scenes"]), 1)
     if share >= cfg.get("images", {}).get("target_share", 0.6) - 0.05:

@@ -14,7 +14,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import factcheck, prompts, render, research, scriptwriter, tts
+from . import factcheck, prompts, remote, render, research, scriptwriter, tts
 from .llm import Claude
 from .utils import add_history, log, read_json, save_json, topic_slug
 
@@ -107,8 +107,12 @@ def build(claude: Claude, cfg: dict, today: dt.date, out: Path, from_research: s
     path = out / "briefing.json"
     if path.exists() and not from_research:
         b = read_json(path)
-        ans = input(f"Today's briefing already exists ({len(b['stories'])} stories). Reuse it? [Y/n] ").strip().lower()
-        if ans not in ("n", "no"):  # anything but a clear "no" reuses it (research costs money)
+        question = f"Today's briefing already exists ({len(b['stories'])} stories). Reuse it?"
+        if remote.active:
+            reuse = remote.active.confirm(question)
+        else:
+            reuse = input(f"{question} [Y/n] ").strip().lower() not in ("n", "no")  # research costs money
+        if reuse:
             return b
     if from_research:
         res = read_json(Path(from_research))
@@ -131,8 +135,14 @@ def ask_choice(b: dict) -> list[int]:
     ok = [i for i, fc in enumerate(b["checks"], 1) if fc["publishable"]]
     if not ok:
         print("No story passed fact-check today, so there is nothing safe to publish.")
+        if remote.active:
+            remote.active.say("No story passed fact-check today, so there is nothing safe to publish.")
         return []
     default = rec or ok[:1]
+    if remote.active:
+        options = [(i, f"{i}. {b['stories'][i - 1]['title']}") for i in ok]
+        return remote.active.pick_many("Which stories should I turn into Shorts? My picks are ticked.", options, default,
+                                       done_label="Make these")
     print(f"\nProducer's pick: {', '.join(map(str, default))} (press Enter to make {'these' if len(default) > 1 else 'it'}).")
     while True:
         ans = input("Which stories should I turn into Shorts? Numbers like 1,3 · Enter = producer's pick"
@@ -187,11 +197,15 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
         except Exception as e:  # noqa: BLE001 - the video is done; posts can be redone later
             log(f"Social posts failed ({e}); run: python -m agent.social {folder / 'script.json'}")
     add_history(script.get("story_title", ""), [s["url"] for s in script.get("sources", [])], today)
+    if remote.active:
+        remote.active.deliver(folder, mp4)
     return mp4
 
 
 def ask_voice(cfg: dict) -> str:
     """Who speaks the voiceover. Enter keeps tts.engine from config."""
+    if remote.active:
+        return "edge"  # recording yourself needs you at the Mac
     lang = cfg["tts"].get("language", "en")
     options = [("edge", "AI voice (Edge, free)")]
     if lang == "en":  # recording yourself is English-only for now
@@ -223,6 +237,10 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
     (out / "briefing.md").write_text(briefing_text(b, True, agg), encoding="utf-8")
     print("\n" + LINE + "\n" + briefing_text(b, False, agg) + LINE)
     print(f"Full briefing with every fact and link: {out / 'briefing.md'}")
+    if remote.active:
+        remote.active.doing = "waiting for your answers"
+        remote.active.say(briefing_text(b, False, agg))
+        remote.active.send_file(out / "briefing.md", "Full briefing with every fact and link")
     picks = ask_choice(b)
     if picks:
         from .language import ask_language
@@ -240,7 +258,9 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
         want_photos = False
         if cfg.get("images", {}).get("enabled", True):
             try:
-                want_photos = input("Add real photos (free-licence; you approve each one)? [Y/n] ").strip().lower() not in ("n", "no")
+                question = "Add real photos (free-licence; you approve each one)?"
+                want_photos = (remote.active.confirm(question) if remote.active
+                               else input(f"{question} [Y/n] ").strip().lower() not in ("n", "no"))
             except EOFError:
                 pass
         cfg.setdefault("images", {})["_want"] = want_photos
@@ -249,10 +269,16 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
         st, fc = b["stories"][n - 1], b["checks"][n - 1]
         cfg["video"]["template"], cfg["script"]["pattern"] = looks[n]
         log(f"Making Short {n}: {st['title']}")
+        if remote.active:
+            remote.active.doing = f"making: {st['title']}"
+            remote.active.check()
+            remote.active.say(f"Making: {st['title']}")
         try:
             made.append(generate(claude, cfg, st, fc, out / topic_slug(st["title"]), today))
         except Exception as e:  # one bad story shouldn't stop the others
             log(f"Short {n} failed: {e}")
+            if remote.active:
+                remote.active.say(f"Short {n} failed: {str(e)[:300]}")
     for m in made:
         qa_file = Path(m).parent / "qa.json"
         bad = qa_file.exists() and json.loads(qa_file.read_text()).get("problems")

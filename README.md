@@ -302,6 +302,26 @@ and the problems go at the top of `posts.md`.
 The `reconstruction` template is only offered for scripts with flight-track data; anything
 else is switched to the template recommended for its story.
 
+## Run it from Telegram
+
+One-time setup: in Telegram, message **@BotFather**, send `/newbot`, and put the token it gives
+you in `.env` as `TELEGRAM_BOT_TOKEN=...`. Then double-click **Telegram Bot.command** (or run
+`.venv/bin/python -m agent.telegram_bot`). The first time, it prints a code in the window: send
+`/start CODE` to your bot. After that only your account can use it; anyone else is ignored.
+
+Commands: `/today`, `/status`, `/cancel`, `/help`. The bot sends the briefing, asks for stories,
+language, template, pattern, photos and script approval with buttons (reply with a note to
+get a rewrite), then sends the video with its final-check result, `posts.md`, the captions
+and the carousel. It never posts anywhere.
+
+- The Mac has to stay on and online: it does the work, and the window keeps it awake
+  (closing the lid can still sleep it).
+- Telegram runs use the AI voice, since recording yourself needs you at the Mac.
+- Settings under `telegram` in `config.json`: `brain` (`subscription` or `api`),
+  `answer_timeout_minutes` (after this the default is used), `daily_at` (for example `"08:00"`
+  to start by itself every day; off by default).
+- Telegram bots can send files up to 50 MB; a bigger video stays on the Mac.
+
 ## Tests
 
 The code-level checks (source tiers, publishable rule, script structure, speakability,

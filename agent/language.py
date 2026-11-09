@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 
+from . import remote
 from .utils import log
 
 LANGUAGES = {"en": "English", "ta": "Tamil"}
@@ -50,6 +51,8 @@ def name(lang: str) -> str:
 def ask_language(cfg: dict) -> str:
     """Which language the voiceover is in. Enter keeps tts.language from config."""
     current = cfg["tts"].get("language", "en")
+    if remote.active:
+        return remote.active.choose("Voiceover language?", list(LANGUAGES.items()), current)
     codes = list(LANGUAGES)
     print("\nVoiceover language:")
     for i, code in enumerate(codes, 1):

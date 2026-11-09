@@ -6,7 +6,7 @@ import re
 import sys
 import textwrap
 
-from . import prompts
+from . import prompts, remote
 from .llm import Claude
 from .utils import log
 
@@ -401,7 +401,7 @@ def run(claude: Claude, cfg: dict, chosen: dict) -> dict:
     script, _ = claude.ask_json(model, prompts.SCRIPT_SYSTEM, user, search=False)
     script["pattern"] = pattern
     script = polish(claude, cfg, script, ctx)
-    if sys.stdin.isatty() and sc.get("approve", True):
+    if (sys.stdin.isatty() or remote.active) and sc.get("approve", True):
         script = approve(claude, cfg, script, ctx)
 
     # attach sources for the on-screen source line and description
@@ -507,6 +507,13 @@ def approve(claude: Claude, cfg: dict, script: dict, ctx: dict) -> dict:
     """Show the whole voiceover as one paragraph, the way it will be heard, before recording.
     Enter approves; anything typed is a note for a rewrite ("simpler", "explain the weights")."""
     while True:
+        if remote.active:
+            note = remote.active.approve(joined(script), word_count(script), script.get("audit_warnings", []))
+            if not note:
+                return script
+            log(f"Rewriting with your note: {note}")
+            script = polish(claude, cfg, script, ctx, seed=[{"problem": f"Producer's note - apply it to the whole script: {note}"}])
+            continue
         print("\n── The script, as it will be heard " + "─" * 30)
         print(textwrap.fill(joined(script), 88))
         print(f"   ({word_count(script)} words)")
@@ -575,10 +582,12 @@ def ask_pattern(cfg: dict, category: str = "") -> str:
     import sys
 
     default = cfg["script"].get("pattern", "story")
-    if not sys.stdin.isatty():
-        return default
     rec = prompts.RECOMMENDED_PATTERN.get(category or "")
     names = list(prompts.PATTERNS)
+    if remote.active:
+        return remote.active.choose("Which script pattern?", [(n, prompts.PATTERNS[n]["name"].split(" - ")[0]) for n in names], rec or default)
+    if not sys.stdin.isatty():
+        return default
     print("\nWhich script pattern?")
     for i, n in enumerate(names, 1):
         tags = [t for t, on in (("default", n == default), (f"recommended for {category} stories", n == rec)) if on]

@@ -218,5 +218,10 @@
   },
   "social": {
     "enabled": true
+  },
+  "telegram": {
+    "brain": "subscription",
+    "answer_timeout_minutes": 120,
+    "daily_at": null
   }
 }

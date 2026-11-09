@@ -19,3 +19,6 @@ assets/music.mp3
 # your measured speaking pace (rebuilt from your recordings)
 voice_profile.json
 graphify-out/
+
+# who is paired with the Telegram bot
+.telegram_owner.json

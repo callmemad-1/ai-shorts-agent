@@ -22,6 +22,7 @@ import numpy as np
 import soundfile as sf
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from . import remote
 from .utils import ROOT, log, resolve
 
 FONTS = ROOT / "assets" / "fonts"
@@ -499,6 +500,10 @@ def ask_template(cfg: dict, category: str = "", script: dict | None = None) -> s
     names = [n for n in TEMPLATES if template_fits(n, script)]
     if default not in names:
         default = RECOMMENDED.get(category or "", "tutorial")
+    if remote.active:
+        rec_ = RECOMMENDED.get(category or "")
+        return remote.active.choose("Which look should this video use?",
+                                    [(n, TEMPLATES[n].split(" - ")[0] + ("  ★ recommended" if n == rec_ else "")) for n in names], default)
     if not sys.stdin.isatty():
         return default
     rec = RECOMMENDED.get(category or "")
