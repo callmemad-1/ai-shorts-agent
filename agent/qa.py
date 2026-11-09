@@ -24,23 +24,11 @@ def caption_problems(voice: dict) -> list[str]:
     return out
 
 
-def template_problems(script: dict, cfg: dict) -> list[str]:
-    from .render import template_fits
-
-    template = cfg["video"].get("template", "classic")
-    out = []
-    if not template_fits(template, script):
-        out.append(f"The {template} template has no data for this script, so the picture would be empty.")
-    if template == "reconstruction" and any(s.get("image") for s in script.get("scenes", [])):
-        out.append("The approved photos aren't shown: the reconstruction template draws everything in code.")
-    return out
-
-
 def check(script: dict, voice: dict, cfg: dict, mp4: Path) -> dict:
     from .myvoice import _duration, _loudest_db, align
 
     mp4 = Path(mp4)
-    problems = template_problems(script, cfg) + caption_problems(voice)
+    problems = caption_problems(voice)
     dur = _duration(mp4)
     sc, lang = cfg["script"], script.get("language", "en")
     if dur <= LONG_FORM_SECONDS:

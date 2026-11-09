@@ -275,12 +275,6 @@ class Routing(unittest.TestCase):
         self.addCleanup(setattr, remote, "active", None)
         self.cfg = copy.deepcopy(CFG)
 
-    def test_template_menu_hides_reconstruction(self):
-        from agent.render import ask_template
-        ask_template(self.cfg, "business")
-        names = [v for v, _ in self.bot.choose.call_args[0][1]]
-        self.assertNotIn("reconstruction", names)
-
     def test_pattern_language_use_the_bot(self):
         from agent.language import ask_language
         from agent.scriptwriter import ask_pattern

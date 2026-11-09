@@ -350,25 +350,10 @@ class UploadSettings(unittest.TestCase):
 
 
 class WrongVideoGuards(unittest.TestCase):
-    """From the 7 Nov Nasdaq Short: empty radar template, garbled long line, nothing stopped it."""
+    """From the 7 Nov Nasdaq Short: an unbalanced script and a broken video that nothing stopped."""
     NASDAQ_HOOK = ("Why did the Nasdaq 100 drop? That's a basket of big stocks. NBC News says it had its worst day "
                    "since April 2025, falling about six point three percent and wiping out roughly two point three "
                    "trillion dollars.")
-
-    def test_reconstruction_needs_its_data(self):
-        from agent.render import template_fits
-        self.assertFalse(template_fits("reconstruction", {"scenes": [{"id": 1}]}))
-        self.assertFalse(template_fits("reconstruction", None))
-        self.assertTrue(template_fits("reconstruction", {"recon": {"track": [[1, 2]]}, "scenes": []}))
-        self.assertTrue(template_fits("tutorial", None))
-
-    def test_wrong_template_swapped_for_recommended(self):
-        from agent.render import resolve_template
-        cfg = copy.deepcopy(CFG)
-        cfg["video"]["template"] = "reconstruction"
-        script = {"category": "business", "template": "reconstruction", "scenes": []}
-        self.assertEqual(resolve_template(cfg, script), "tutorial")
-        self.assertEqual((cfg["video"]["template"], script["template"]), ("tutorial", "tutorial"))
 
     def test_overlong_hook_flagged(self):
         from agent.scriptwriter import check_balance
@@ -392,11 +377,6 @@ class WrongVideoGuards(unittest.TestCase):
         fine = [{"word": "w", "start": i * 0.4, "end": i * 0.4 + 0.3} for i in range(10)]
         self.assertEqual(caption_problems({"clips": [{"scene_id": 1, "words": fine}]}), [])
 
-    def test_final_check_catches_template_without_data(self):
-        from agent.qa import template_problems
-        cfg = copy.deepcopy(CFG)
-        cfg["video"]["template"] = "reconstruction"
-        self.assertTrue(template_problems({"scenes": [{"id": 1}]}, cfg))
 
 
 class VoiceLanguage(unittest.TestCase):

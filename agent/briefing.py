@@ -182,7 +182,7 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
         script = maybe_add(folder / "script.json", cfg, claude, asked=True)
     voice = tts.synthesize(script, cfg, folder / "voice")
     save_json(voice, folder / "voice" / "timings.json")
-    script["template"] = render.resolve_template(cfg, script)  # remembered for the social carousel
+    script["template"] = cfg["video"].get("template", "classic")  # remembered for the social carousel
     save_json(script, folder / "script.json")
     mp4 = render.render_video(cfg, script, voice, folder / "short.mp4")
     render.render_still(cfg, script, voice, 0, 2.5, folder / "cover.png")

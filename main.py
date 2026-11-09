@@ -190,7 +190,7 @@ def main() -> int:
     if args.stop_after == "tts":
         return 0
 
-    script["template"] = render.resolve_template(cfg, script)  # remembered for the social carousel
+    script["template"] = cfg["video"].get("template", "classic")  # remembered for the social carousel
     save_json(script, folder / "script.json") if (folder / "script.json").exists() else None
     mp4 = render.render_video(cfg, script, voice, folder / "short.mp4")
     render.render_still(cfg, script, voice, 0, 2.5, folder / "cover.png")

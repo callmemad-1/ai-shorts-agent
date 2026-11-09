@@ -295,12 +295,9 @@ assets/fonts/           Inter (SIL Open Font License 1.1)
 ## Final check before upload
 
 After rendering, the finished video is compared with the script and the result is saved
-as `qa.json`: Whisper listens to the final audio, and the template, length and caption
-timing are checked. If anything fails, the run ends with **NEEDS REVIEW** instead of Done,
+as `qa.json`: Whisper listens to the final audio, and the length and caption timing are
+checked. If anything fails, the run ends with **NEEDS REVIEW** instead of Done,
 and the problems go at the top of `posts.md`.
-
-The `reconstruction` template is only offered for scripts with flight-track data; anything
-else is switched to the template recommended for its story.
 
 ## Run it from Telegram
 
