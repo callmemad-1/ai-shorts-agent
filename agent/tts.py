@@ -148,6 +148,8 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
         if clone.available(cfg):
             try:
                 return clone.synthesize(script, cfg, outdir)
+            except clone.StopRun:
+                raise  # you chose to stop: don't quietly swap in another voice
             except Exception as e:  # noqa: BLE001 - never lose the day's Short to the clone
                 log(f"Cloned voice failed ({e}); using the AI voice for this run.")
         else:

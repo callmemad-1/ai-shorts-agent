@@ -308,6 +308,9 @@ def make(script_path: Path, cfg: dict, claude=None) -> Path:
     if voice_p.exists():
         voice = json.loads(voice_p.read_text())
         slides = carousel(cfg, script, voice, out)
+    qa_file = folder / "qa.json"
+    if qa_file.exists():  # a failed final check goes at the top of what you read before posting
+        posts["remaining_issues"] = list(posts.get("remaining_issues") or []) + json.loads(qa_file.read_text()).get("problems", [])
     (out / "posts.json").write_text(json.dumps(posts, indent=2, ensure_ascii=False))
     captions = None
     if voice.get("clips"):

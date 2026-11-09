@@ -231,6 +231,10 @@ can use your voice with nobody at the keyboard. About 2.5 minutes per Short.
 - Scripts are sized to the clone's own pace (measured on every clone run, kept in
   `voice_profile.json`; `tts.clone.wpm` until the first run). If one still runs long,
   it's sped up gently (at most x1.12, pitch kept).
+- Long lines are split into pieces of 20 words at most, because IndexTTS turns long passages
+  into noise. A scene that fails the check is retried in smaller pieces; if it still fails you
+  choose (retry, AI voice for that scene, keep, stop). Unattended runs keep it and mark the
+  Short for review.
 - If local-voice is missing or fails, the run falls back to the AI voice.
 - `posts.md` reminds you to mark the upload as **altered or synthetic content** on YouTube
   and to turn on Instagram's AI label.
@@ -318,6 +322,16 @@ agent/prompts.py        all prompts
 tests/test_checks.py    tests for the code-level checks
 assets/fonts/           Inter (SIL Open Font License 1.1)
 ```
+
+## Final check before upload
+
+After rendering, the finished video is compared with the script and the result is saved
+as `qa.json`: Whisper listens to the final audio, and the template, length and caption
+timing are checked. If anything fails, the run ends with **NEEDS REVIEW** instead of Done,
+and the problems go at the top of `posts.md`.
+
+The `reconstruction` template is only offered for scripts with flight-track data; anything
+else is switched to the template recommended for its story.
 
 ## Tests
 

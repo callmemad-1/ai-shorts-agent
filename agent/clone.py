@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -27,6 +28,14 @@ EMOTION_BY_TONE = [
     (r"calm|steady|plain|clear|even", "calm"),
 ]
 PAUSE_SECONDS = 0.3  # a "||" beat in the script's reading cues
+SOFT_PAUSE_SECONDS = 0.1  # where a long line was split for the model
+# IndexTTS turns long passages into noise (a 33-word line did, the same words in short pieces
+# didn't). Words per piece on each attempt: normal, then smaller after a failed Whisper check.
+PIECE_WORDS = [20, 12, 8]
+
+
+class StopRun(Exception):
+    """The user chose to stop rather than use a voiceover that failed its check."""
 
 
 def available(cfg: dict) -> bool:
@@ -45,21 +54,67 @@ def emotion_for(scene: dict) -> str:
     return EMOTION_BY_TYPE.get(scene.get("type"), "calm")
 
 
-def spoken_parts(scene: dict, pronounce: list[dict]) -> list[str]:
-    """The text to send, split at "||" beats, with reading marks removed and names
-    respelled the way they should be said ("Hy4" -> "aitch why four")."""
-    read = scene.get("read") or ""
-    parts = [p for p in re.split(r"\|\|", read)] if "||" in read else [scene.get("voiceover", "")]
+def _respell(text: str, pronounce: list[dict]) -> str:
+    """Names the way they should be said ("Hy4" -> "high four"). Acronyms spelled letter by
+    letter ("N-B-C") stay as written: squashed into "nbc" the model says something else."""
+    for x in pronounce or []:
+        word, say = str(x.get("word") or ""), str(x.get("say") or "").rstrip("?").strip()
+        if word and say and not re.fullmatch(r"[A-Za-z](?:[- ][A-Za-z])+", say):
+            text = re.sub(rf"(?<!\w){re.escape(word)}(?!\w)", say.replace("-", "").lower(), text, flags=re.I)
+    return text
+
+
+def _clauses(part: str, max_words: int) -> list[str]:
+    """Break a line at its "|" marks, then at sentence ends and commas, then every max_words."""
     out = []
-    for p in parts:
-        p = re.sub(r"\s+", " ", p.replace("|", " ").replace("*", "")).strip()
-        for x in pronounce or []:
-            word, say = str(x.get("word") or ""), str(x.get("say") or "").rstrip("?").strip()
-            if word and say:
-                p = re.sub(rf"(?<!\w){re.escape(word)}(?!\w)", say.replace("-", "").lower(), p, flags=re.I)
-        if p:
-            out.append(p)
+    for clause in part.split("|"):
+        clause = re.sub(r"\s+", " ", clause.replace("*", "")).strip()
+        if len(clause.split()) <= max_words:
+            out += [clause] if clause else []
+            continue
+        for bit in re.split(r"(?<=[.!?,;:])\s+", clause):
+            words = bit.split()
+            out += [" ".join(words[i:i + max_words]) for i in range(0, len(words), max_words)]
     return out
+
+
+def speech_pieces(scene: dict, pronounce: list[dict], max_words: int = PIECE_WORDS[0]) -> list[tuple[str, float]]:
+    """What to send to the model: (text, pause after it). Split at "||" beats, and again
+    wherever a stretch would be longer than the model can say cleanly."""
+    read = scene.get("read") or ""
+    parts = re.split(r"\|\|", read) if "||" in read else [scene.get("voiceover", "")]
+    out: list[tuple[str, float]] = []
+    for part in parts:
+        merged: list[str] = []
+        for clause in _clauses(part, max_words):
+            if merged and len(merged[-1].split()) + len(clause.split()) <= max_words:
+                merged[-1] += " " + clause
+            else:
+                merged.append(clause)
+        out += [(_respell(m, pronounce), SOFT_PAUSE_SECONDS) for m in merged]
+        if out:
+            out[-1] = (out[-1][0], PAUSE_SECONDS)
+    return out
+
+
+def spoken_parts(scene: dict, pronounce: list[dict]) -> list[str]:
+    """The text split only at "||" beats, with reading marks removed and names respelled."""
+    return [text for text, _ in speech_pieces(scene, pronounce, max_words=10 ** 6)]
+
+
+def trim_silence(a, sr: int, floor_db: float = -38.0, margin: float = 0.03):
+    """Cut the padding the model leaves around a clip, so split lines don't sound gappy."""
+    import numpy as np
+
+    if a.size == 0:
+        return a
+    hop = max(1, int(sr * 0.01))
+    level_ = np.sqrt(np.convolve(a ** 2, np.ones(hop) / hop, mode="same"))
+    on = np.where(level_ > float(np.max(np.abs(a))) * 10 ** (floor_db / 20))[0]
+    if on.size == 0:
+        return a
+    edge = int(sr * margin)
+    return a[max(0, on[0] - edge): min(a.size, on[-1] + edge)]
 
 
 class Worker:
@@ -119,13 +174,23 @@ def level(x, target_rms_db: float = -20.0, peak_db: float = -1.5):
     return (x * g).astype("float32")
 
 
+def _ask_failed(scene_id, ratio: float, missing: list[str]) -> str:
+    """A scene is still unclear after the retries: never pass it on silently. With no one at
+    the keyboard it's kept and the Short is marked for review."""
+    if not sys.stdin.isatty():
+        return "keep"
+    print(f"\n⚠ Scene {scene_id}: only {ratio:.0%} of the words came out clearly (missing: {', '.join(missing)}).")
+    ans = input("Enter = try again · a = AI voice for this scene · k = keep it anyway · q = stop: ").strip().lower()
+    return {"a": "ai", "k": "keep", "q": "stop"}.get(ans, "again")
+
+
 def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
     import numpy as np
     import soundfile as sf
 
     from .language import spoken
     from .myvoice import _loudest_db, align
-    from .tts import SR, _ffprobe_duration, estimate_word_times
+    from .tts import SR, _ffprobe_duration, estimate_word_times, synth_edge
 
     c = cfg["tts"]["clone"]
     min_match, retries = c.get("min_match", 0.8), c.get("retries", 2)
@@ -140,13 +205,15 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
     try:
         for s in script["scenes"]:
             mood = emotion_for(s)
-            # Tamil: the translated line, whole (Maya has no mood; the English read marks don't apply)
-            parts = spoken_parts(s, script.get("pronounce", [])) if lang == "en" else [spoken(s)]
             wav = outdir / f"scene_{s['id']:02d}.wav"
-            best = None
-            for attempt in range(retries + 1):
+            best, choice = None, ""
+            attempt = 0
+            while True:
+                size = PIECE_WORDS[min(attempt, len(PIECE_WORDS) - 1)]
+                # Tamil: the translated line, whole (Maya has no mood; the English read marks don't apply)
+                parts = speech_pieces(s, script.get("pronounce", []), size) if lang == "en" else [(spoken(s), 0.0)]
                 pieces = []
-                for k, text in enumerate(parts):
+                for k, (text, pause) in enumerate(parts):
                     raw = tmp / f"{uuid.uuid4().hex[:10]}.wav"
                     worker.speak(text, mood, raw)
                     a, sr = sf.read(str(raw), dtype="float32", always_2d=False)
@@ -154,9 +221,9 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
                     if sr != SR:
                         n = int(round(len(a) * SR / sr))
                         a = np.interp(np.linspace(0, len(a), n, endpoint=False), np.arange(len(a)), a).astype("float32")
-                    pieces.append(a)
+                    pieces.append(trim_silence(a, SR) if lang == "en" else a)
                     if k < len(parts) - 1:
-                        pieces.append(np.zeros(int(SR * PAUSE_SECONDS), dtype="float32"))
+                        pieces.append(np.zeros(int(SR * pause), dtype="float32"))
                 audio = level(np.concatenate(pieces))
                 fade = min(len(audio), int(SR * 0.01))
                 audio[:fade] *= np.linspace(0, 1, fade)
@@ -172,11 +239,26 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
                     best = (wav.read_bytes(), ratio, words, dur, missing)
                 if ratio >= min_match:
                     break
-                log(f"Scene {s['id']}: only {ratio:.0%} of words came out clearly ({', '.join(missing)}); "
-                    f"generating again ({attempt + 1}/{retries})" if attempt < retries else
-                    f"Scene {s['id']}: still {ratio:.0%} after {retries} retries; keeping the best take")
+                attempt += 1
+                if attempt <= retries:
+                    log(f"Scene {s['id']}: only {ratio:.0%} of words came out clearly ({', '.join(missing)}); "
+                        f"trying again in shorter pieces ({attempt}/{retries})")
+                    continue
+                choice = _ask_failed(s["id"], best[1], best[4])
+                if choice == "again":
+                    continue
+                if choice == "stop":
+                    raise StopRun(f"Stopped at scene {s['id']}: the cloned voice wasn't clear enough.")
+                break
             data, ratio, words, dur, missing = best
             wav.write_bytes(data)
+            if ratio < min_match and choice == "ai":
+                try:
+                    dur, words = synth_edge(s["voiceover"], wav, cfg, 1.0)
+                    ratio, missing = 1.0, []
+                    log(f"Scene {s['id']}: using the AI voice for this scene")
+                except Exception as e:  # noqa: BLE001 - keep the best take and flag it
+                    log(f"Scene {s['id']}: the AI voice failed too ({e}); keeping the best take")
             if ratio < min_match:
                 flagged.append(f"scene {s['id']} ({ratio:.0%}; listen for: {', '.join(missing)})")
             log(f"Scene {s['id']} [{mood}]: {dur:.1f}s, {ratio:.0%} of words clear" if lang == "en" else
@@ -212,4 +294,4 @@ def synthesize(script: dict, cfg: dict, outdir: Path) -> dict:
     if flagged:
         log("⚠ Listen to these before uploading: " + "; ".join(flagged))
     return {"engine": "clone", "speed": 1.0, "total": round(total, 2), "clips": clips, "flagged": flagged,
-            "synthetic": True}
+            "needs_review": bool(flagged), "synthetic": True}

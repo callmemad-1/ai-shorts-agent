@@ -127,7 +127,7 @@ def main() -> int:
         script = read_json(Path(args.from_script))
         folder = folder or Path(args.from_script).parent  # re-render in place
         if not args.template:
-            cfg["video"]["template"] = render.ask_template(cfg, script.get("category", ""))
+            cfg["video"]["template"] = render.ask_template(cfg, script.get("category", ""), script)
     else:
         from agent.llm import ask_brain, make_claude
 
@@ -191,10 +191,13 @@ def main() -> int:
     if args.stop_after == "tts":
         return 0
 
-    script["template"] = cfg["video"].get("template", "classic")  # remembered for the social carousel
+    script["template"] = render.resolve_template(cfg, script)  # remembered for the social carousel
     save_json(script, folder / "script.json") if (folder / "script.json").exists() else None
     mp4 = render.render_video(cfg, script, voice, folder / "short.mp4")
     render.render_still(cfg, script, voice, 0, 2.5, folder / "cover.png")
+    from agent import qa
+
+    review = qa.check(script, voice, cfg, mp4)
     if cfg.get("social", {}).get("enabled", True) and not args.no_social and (folder / "script.json").exists():
         try:
             from agent.social import make as make_posts
@@ -204,7 +207,7 @@ def main() -> int:
             log(f"Social posts failed ({e}); run: python -m agent.social {folder / 'script.json'}")
     if not args.from_script:
         add_history(script.get("story_title", script.get("title", "")), [s["url"] for s in script.get("sources", [])], today)
-    log(f"Done -> {mp4}")
+    log(f"{'NEEDS REVIEW' if review['problems'] else 'Done'} -> {mp4}")
     return 0
 
 

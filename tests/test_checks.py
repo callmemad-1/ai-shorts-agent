@@ -349,6 +349,89 @@ class UploadSettings(unittest.TestCase):
         self.assertLessEqual(sum(len(t) + 1 for t in tags), 450)
 
 
+class WrongVideoGuards(unittest.TestCase):
+    """From the 7 Nov Nasdaq Short: empty radar template, garbled long line, nothing stopped it."""
+    NASDAQ_HOOK = ("Why did the Nasdaq 100 drop? That's a basket of big stocks. NBC News says it had its worst day "
+                   "since April 2025, falling about six point three percent and wiping out roughly two point three "
+                   "trillion dollars.")
+
+    def test_reconstruction_needs_its_data(self):
+        from agent.render import template_fits
+        self.assertFalse(template_fits("reconstruction", {"scenes": [{"id": 1}]}))
+        self.assertFalse(template_fits("reconstruction", None))
+        self.assertTrue(template_fits("reconstruction", {"recon": {"track": [[1, 2]]}, "scenes": []}))
+        self.assertTrue(template_fits("tutorial", None))
+
+    def test_wrong_template_swapped_for_recommended(self):
+        from agent.render import resolve_template
+        cfg = copy.deepcopy(CFG)
+        cfg["video"]["template"] = "reconstruction"
+        script = {"category": "business", "template": "reconstruction", "scenes": []}
+        self.assertEqual(resolve_template(cfg, script), "tutorial")
+        self.assertEqual((cfg["video"]["template"], script["template"]), ("tutorial", "tutorial"))
+
+    def test_long_line_is_split_for_the_model(self):
+        from agent.clone import speech_pieces
+        read = ("Why did it *drop*? || That's a basket of big stocks. | NBC News says it had its *worst* day since April "
+                "2025, | falling about six point three percent | and wiping out roughly *two point three trillion* dollars.")
+        pieces = speech_pieces({"voiceover": "x", "read": read}, [])
+        self.assertTrue(all(len(t.split()) <= 20 for t, _ in pieces))
+        self.assertEqual(" ".join(t for t, _ in pieces), read.replace("|", "").replace("*", "").replace("  ", " ").replace("  ", " "))
+        self.assertGreater(len(pieces), 2)
+
+    def test_retry_uses_smaller_pieces(self):
+        from agent.clone import speech_pieces
+        scene = {"voiceover": self.NASDAQ_HOOK}
+        self.assertTrue(all(len(t.split()) <= 8 for t, _ in speech_pieces(scene, [], 8)))
+
+    def test_acronym_stays_as_letters(self):
+        from agent.clone import spoken_parts
+        out = spoken_parts({"voiceover": "NBC says Qualcomm fell."},
+                           [{"word": "NBC", "say": "N-B-C"}, {"word": "Qualcomm", "say": "KWAL-kom"}])
+        self.assertEqual(out, ["NBC says kwalkom fell."])
+
+    def test_failed_scene_is_kept_and_flagged_when_unattended(self):
+        from unittest import mock
+        from agent.clone import _ask_failed
+        with mock.patch("sys.stdin.isatty", return_value=False):
+            self.assertEqual(_ask_failed(1, 0.37, ["x"]), "keep")
+
+    def test_padding_trimmed_but_speech_kept(self):
+        import numpy as np
+        from agent.clone import trim_silence
+        sr = 24000
+        a = np.concatenate([np.zeros(sr), np.sin(np.arange(sr) * 0.1).astype("float32") * 0.5, np.zeros(sr)]).astype("float32")
+        self.assertTrue(sr <= trim_silence(a, sr).size < sr * 1.2)
+
+    def test_overlong_hook_flagged(self):
+        from agent.scriptwriter import check_balance
+        self.assertTrue(any("hook" in p for p in check_balance([{"id": 1, "type": "hook", "voiceover": self.NASDAQ_HOOK}])))
+
+    def test_fragment_comparison_flagged(self):
+        from agent.scriptwriter import check_balance
+        bad = "Chips are ovens, data centers bakeries. Bakeries need ovens, so limit them, fewer sell."
+        good = "Think of chips as ovens and data centers as bakeries, because every new bakery has to buy ovens."
+        self.assertTrue(check_balance([{"id": 3, "type": "example", "voiceover": bad}]))
+        self.assertEqual(check_balance([{"id": 3, "type": "example", "voiceover": good}]), [])
+
+    def test_tiny_reality_check_flagged(self):
+        from agent.scriptwriter import check_balance
+        self.assertTrue(check_balance([{"id": 5, "type": "verify", "voiceover": "Whether the fear lasts is unknown."}]))
+
+    def test_final_check_catches_squeezed_captions_and_unclear_voice(self):
+        from agent.qa import caption_problems
+        words = [{"word": "w", "start": i * 0.01, "end": i * 0.01 + 0.01} for i in range(10)]
+        self.assertTrue(caption_problems({"clips": [{"scene_id": 1, "words": words}]}))
+        fine = [{"word": "w", "start": i * 0.4, "end": i * 0.4 + 0.3} for i in range(10)]
+        self.assertEqual(caption_problems({"clips": [{"scene_id": 1, "words": fine}]}), [])
+
+    def test_final_check_catches_template_without_data(self):
+        from agent.qa import template_problems
+        cfg = copy.deepcopy(CFG)
+        cfg["video"]["template"] = "reconstruction"
+        self.assertTrue(template_problems({"scenes": [{"id": 1}]}, cfg))
+
+
 class VoiceLanguage(unittest.TestCase):
     def test_spoken_line_wins_over_english(self):
         from agent.language import spoken

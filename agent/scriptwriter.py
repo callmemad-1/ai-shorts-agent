@@ -229,6 +229,34 @@ def check_flow(scenes: list[dict]) -> list[str]:
     return problems
 
 
+MAX_HOOK_WORDS, MAX_SCENE_WORDS, MIN_VERIFY_WORDS = 24, 30, 8
+COMPARISON = re.compile(r"\b(like|imagine|think of|picture|as if|same way|because)\b", re.I)
+
+
+def check_balance(scenes: list[dict]) -> list[str]:
+    """No scene hogs the Short, the caveat gets a real sentence, and the comparison is
+    something a person would actually say."""
+    problems = []
+    for s in scenes:
+        text, kind = s.get("voiceover", ""), s.get("type")
+        n = len(text.split())
+        limit = MAX_HOOK_WORDS if kind == "hook" else MAX_SCENE_WORDS
+        if n > limit:
+            problems.append(f"Scene {s.get('id')} ({kind}) is {n} words; keep it to {limit}. Move a detail to the next "
+                            "scene or leave it out.")
+        if kind == "verify" and n < MIN_VERIFY_WORDS:
+            problems.append(f"Scene {s.get('id')}: the reality check is only {n} words; say the honest caveat in a full "
+                            f"sentence ({MIN_VERIFY_WORDS}+ words).")
+        if kind == "example":
+            sents = sentences(text)
+            if not COMPARISON.search(text):
+                problems.append(f"Scene {s.get('id')}: say it as a comparison ('It's like X, because Y').")
+            if sents and sum(len(x.split()) for x in sents) / len(sents) < 6:
+                problems.append(f"Scene {s.get('id')}: the comparison is squeezed into fragments ({text!r}). Use one or "
+                                "two complete sentences and cut another detail to make room.")
+    return problems
+
+
 def joined(script: dict) -> str:
     return " ".join(s.get("voiceover", "").strip() for s in script.get("scenes", []))
 
@@ -287,6 +315,7 @@ def validate(script: dict, usable_ids: set[str], cfg: dict, facts: str = "") -> 
     problems += check_delivery(scenes)
     problems += check_speakability(scenes, cfg["script"].get("max_spoken_numbers", 3))
     problems += check_flow(scenes)
+    problems += check_balance(scenes)
     for s in scenes:
         if s.get("type") == "verify" and not 2 <= len((s.get("on_screen") or {}).get("bullets") or []) <= 3:
             problems.append(f"Scene {s.get('id')}: the reality check needs 2-3 bullets (the screen shows at most 3).")

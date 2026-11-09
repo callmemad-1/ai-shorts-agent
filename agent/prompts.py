@@ -128,6 +128,9 @@ It must flow as ONE story, not a list of facts:
 - Concrete, visual words ("Search goes dark") over abstract ones ("functionality
   will be unavailable").
 - Sound-off test: each on-screen headline must make the scene's point on its own.
+- Keep the scenes balanced: the hook is at most 24 words in total, no scene is over 30.
+  When it's too long, leave a whole detail out; never squeeze a line into fragments
+  ("Chips are ovens, data centers bakeries" is not how people talk).
 
 Make it easy to understand - write for a smart 14-year-old who has never heard of
 the company:
@@ -318,6 +321,7 @@ Return one ```json block:
 
 REVISE_USER = """Revise the script to fix these issues. Keep the same JSON structure,
 story-arc scene order and length rules. Use only the fact-checked claims.
+To shorten, leave whole details out; never squeeze sentences into fragments.
 Rewrite the voiceover as a whole so it still reads as one flowing story when the
 scenes are joined: don't patch single sentences in a way that breaks the links
 between scenes. Keep each scene's "read" in step with its voiceover (same words).

@@ -468,16 +468,40 @@ RECOMMENDED = {"research": "tutorial", "policy": "tutorial", "business": "tutori
                "product": "tutorial", "launch": "terminal", "security": "terminal"}
 
 
-def ask_template(cfg: dict, category: str = "") -> str:
+def template_fits(template: str, script: dict | None) -> bool:
+    """The reconstruction look draws only a flight track and 3D shots from the script's
+    "recon" data; on any other script it's an empty radar with no headlines or photos."""
+    if template != "reconstruction":
+        return True
+    return bool(script and (script.get("recon") or any(s.get("recon") for s in script.get("scenes", []))))
+
+
+def resolve_template(cfg: dict, script: dict) -> str:
+    """Swap a template this script can't use for the one recommended for its story."""
+    template = cfg["video"].get("template", "classic")
+    if template_fits(template, script):
+        return template
+    better = RECOMMENDED.get(script.get("category") or "", "tutorial")
+    print(f"⚠ The {template} template needs flight-track data this script doesn't have; using {better} instead.")
+    cfg["video"]["template"] = better
+    if script.get("template"):
+        script["template"] = better
+    return better
+
+
+def ask_template(cfg: dict, category: str = "", script: dict | None = None) -> str:
     """Ask which look to use before rendering. Enter keeps the config default; with no one
-    at the keyboard (scheduled runs) the default is used without asking."""
+    at the keyboard (scheduled runs) the default is used without asking. The reconstruction
+    look is only offered for a script that has its data."""
     import sys
 
     default = cfg["video"].get("template", "classic")
+    names = [n for n in TEMPLATES if template_fits(n, script)]
+    if default not in names:
+        default = RECOMMENDED.get(category or "", "tutorial")
     if not sys.stdin.isatty():
         return default
     rec = RECOMMENDED.get(category or "")
-    names = list(TEMPLATES)
     print("\nWhich look should this video use?")
     for i, n in enumerate(names, 1):
         tags = [t for t, on in (("default", n == default), (f"recommended for {category} stories", n == rec)) if on]
@@ -491,7 +515,7 @@ def ask_template(cfg: dict, category: str = "") -> str:
             return default
         if ans.isdigit() and 1 <= int(ans) <= len(names):
             return names[int(ans) - 1]
-        if ans in TEMPLATES:
+        if ans in names:
             return ans
         print("  Type a number from the list, or press Enter.")
 
@@ -545,6 +569,7 @@ def _render_scene(args) -> str:
 
 def render_still(cfg: dict, script: dict, tts: dict, idx: int, t: float, out_png: Path) -> Path:
     """Render a single frame (for previews / thumbnails)."""
+    resolve_template(cfg, script)
     durs = scene_durations(cfg, tts)
     r = make_renderer(cfg, script, len(durs), durs)
     if hasattr(r, "set_audio") and tts["clips"][idx].get("wav"):
@@ -595,6 +620,7 @@ def loudnorm_linear(src: Path, dst: Path) -> Path:
 
 
 def render_video(cfg: dict, script: dict, tts: dict, out_mp4: Path, workers: int | None = None) -> Path:
+    resolve_template(cfg, script)
     durs = scene_durations(cfg, tts)
     work = Path(tempfile.mkdtemp(prefix="scenes_", dir=out_mp4.parent))
     offsets = [sum(durs[:i]) for i in range(len(durs))]

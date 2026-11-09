@@ -172,10 +172,13 @@ def generate(claude: Claude, cfg: dict, story: dict, fc: dict, folder: Path, tod
         script = maybe_add(folder / "script.json", cfg, claude, asked=True)
     voice = tts.synthesize(script, cfg, folder / "voice")
     save_json(voice, folder / "voice" / "timings.json")
-    script["template"] = cfg["video"].get("template", "classic")  # remembered for the social carousel
+    script["template"] = render.resolve_template(cfg, script)  # remembered for the social carousel
     save_json(script, folder / "script.json")
     mp4 = render.render_video(cfg, script, voice, folder / "short.mp4")
     render.render_still(cfg, script, voice, 0, 2.5, folder / "cover.png")
+    from . import qa
+
+    qa.check(script, voice, cfg, mp4)
     if cfg.get("social", {}).get("enabled", True):
         try:
             from .social import make as make_posts
@@ -254,5 +257,7 @@ def run(cfg: dict, today: dt.date, out: Path, from_research: str | None = None, 
         except Exception as e:  # one bad story shouldn't stop the others
             log(f"Short {n} failed: {e}")
     for m in made:
-        print(f"  ✓ {m}")
+        qa_file = Path(m).parent / "qa.json"
+        bad = qa_file.exists() and json.loads(qa_file.read_text()).get("problems")
+        print(f"  {'⚠ NEEDS REVIEW' if bad else '✓'} {m}")
     return 0 if made or not picks else 1
